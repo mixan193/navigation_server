@@ -1,36 +1,21 @@
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, constr, conint, confloat
 
 
 class WiFiObservation(BaseModel):
-    ssid: str = Field(..., description="SSID сети, обнаруженной в скане")
-    bssid: str = Field(..., description="MAC-адрес точки доступа")
-    rssi: int = Field(..., description="Уровень сигнала (dBm)")
-    frequency: Optional[int] = Field(None, description="Частота (MHz)")
-
-    class Config:
-        orm_mode = True
+    ssid: str = Field(..., example="MyWiFiNetwork")
+    bssid: constr(regex=r"^([0-9A-Fa-f]{2}:){5}([0-9A-Fa-f]{2})$") = Field(..., example="AA:BB:CC:DD:EE:FF")
+    rssi: conint(le=0) = Field(..., example=-45)
+    frequency: Optional[int] = Field(None, example=2412)
 
 
 class ScanUpload(BaseModel):
-    building_id: int = Field(..., description="ID здания, в котором сделан скан")
-    floor: int = Field(..., description="Номер этажа")
-    yaw: Optional[float] = Field(
-        None, description="Поворот вокруг вертикальной оси (Z) в градусах"
-    )
-    pitch: Optional[float] = Field(
-        None, description="Наклон вокруг боковой оси (X) в градусах"
-    )
-    roll: Optional[float] = Field(
-        None, description="Наклон вокруг продольной оси (Y) в градусах"
-    )
-    observations: List[WiFiObservation] = Field(
-        ..., description="Список наблюдений по каждой сети в скане"
-    )
-
-
-class ScanResponse(BaseModel):
-    snapshot_id: int = Field(..., description="ID созданного снимка скана Wi-Fi")
-
-    class Config:
-        orm_mode = True
+    building_id: int = Field(..., example=1)
+    floor: int = Field(..., example=2)
+    x: Optional[confloat(ge=0)] = Field(None, example=12.34)
+    y: Optional[confloat(ge=0)] = Field(None, example=56.78)
+    z: Optional[confloat(ge=0)] = Field(None, example=3.0)
+    yaw: Optional[float] = Field(None, example=90.0)
+    pitch: Optional[float] = Field(None, example=0.0)
+    roll: Optional[float] = Field(None, example=0.0)
+    observations: List[WiFiObservation]
