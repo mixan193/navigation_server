@@ -11,7 +11,7 @@ class Building(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     # Читаемое имя здания
-    name = Column(String(255), nullable=False, unique=True, comment="Уникальное название/идентификатор здания")
+    name = Column(String(255), unique=True, nullable=False)
 
     # Адрес или описание
     address = Column(String(255), nullable=True, comment="Адрес или описание здания")

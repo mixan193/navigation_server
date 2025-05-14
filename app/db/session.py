@@ -1,23 +1,24 @@
 from typing import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 
 # Создаём асинхронный движок SQLAlchemy.
 # future=True включает поведение SQLAlchemy 2.0
-engine = create_async_engine(
-    settings.DATABASE_URL,
+async_engine = create_async_engine(
+    str(settings.DATABASE_URL),
     echo=False,        # в продакшне обычно отключаем эхо SQL
     future=True
 )
 
 # factory для получения сессий AsyncSession
 AsyncSessionLocal = sessionmaker(
-    bind=engine,
+    bind=async_engine,
     class_=AsyncSession,
     expire_on_commit=False,  # не сбрасывать объекты после коммита, если нужны для дальнейшего чтения
+    
 )
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
