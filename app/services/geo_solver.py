@@ -12,14 +12,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_TX_POWER_DBM = -50  # Типовое значение мощности сигнала на 1 м
 DEFAULT_PATH_LOSS_EXPONENT = 2.0  # Для помещений: 1.6 - 3.3
 
-
 def rssi_to_distance(rssi: float, tx_power: float = DEFAULT_TX_POWER_DBM, n: float = DEFAULT_PATH_LOSS_EXPONENT) -> float:
     try:
         return 10 ** ((tx_power - rssi) / (10 * n))
     except Exception as e:
         logger.error(f"Ошибка при вычислении расстояния по RSSI: {e}")
         return float("inf")
-
 
 def trilaterate_3d(positions, distances):
     """
@@ -54,7 +52,6 @@ def trilaterate_3d(positions, distances):
 
     # Решаем A * X = b через метод наименьших квадратов
     try:
-        # Приводим к матричной форме (используем стандартный питон)
         from numpy.linalg import lstsq
         import numpy as np
 
@@ -70,13 +67,13 @@ def trilaterate_3d(positions, distances):
         logger.error(f"Ошибка при триангуляции 3D: {e}")
         raise ValueError("Ошибка при решении системы")
 
-
 async def update_access_point_positions(db: AsyncSession):
     logger.info("Начинаем обновление координат точек доступа (3D)")
 
+    # Выбираем все AP, у которых координаты неизвестны (x,y,z = None), исключая мобильные
     result = await db.execute(
         select(AccessPoint).where(
-            (AccessPoint.x.is_(None)) | (AccessPoint.y.is_(None)) | (AccessPoint.z.is_(None))
+            ((AccessPoint.x.is_(None)) | (AccessPoint.y.is_(None)) | (AccessPoint.z.is_(None))) & (AccessPoint.is_mobile == False)
         )
     )
     aps_to_update = result.scalars().all()
@@ -84,11 +81,13 @@ async def update_access_point_positions(db: AsyncSession):
     for ap in aps_to_update:
         logger.info(f"Анализ AP: {ap.bssid}")
 
+        # Выбираем последние наблюдения Wi-Fi для этой точки доступа (в том же здании), у которых есть координаты снимка
         result = await db.execute(
             select(WiFiObs)
             .where(WiFiObs.access_point_id == ap.id)
             .join(WiFiSnapshot, WiFiObs.snapshot_id == WiFiSnapshot.id)
             .where(
+                (WiFiSnapshot.building_id == ap.building_id) &
                 (WiFiSnapshot.x.is_not(None)) &
                 (WiFiSnapshot.y.is_not(None)) &
                 (WiFiSnapshot.z.is_not(None))
