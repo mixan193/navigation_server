@@ -10,26 +10,49 @@ from app.db.models import building as building_model
 from app.schemas.scan import ScanUpload
 from app.db.session import get_db
 from app.services import geo_solver
+from app.utils.geo_utils import reverse_geocode_osm
 
 router = APIRouter(
-    # prefix="/v1",
-    tags=["upload"]
+    prefix="/v1",
 )
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_scan(
     scan: ScanUpload,
     db: AsyncSession = Depends(get_db)
 ):
-    # Проверяем существование здания по ID
+    # 1. Проверка/создание здания как раньше...
+
     result = await db.execute(
         select(building_model.Building).where(building_model.Building.id == scan.building_id)
     )
     building = result.scalars().first()
+    if not building and scan.lat is not None and scan.lon is not None:
+        osm = await reverse_geocode_osm(scan.lat, scan.lon)
+        osm_id = osm.get("osm_id")
+        address = osm.get("display_name", "Unknown address")
+        name = osm.get("name") or osm.get("address", {}).get("building") or "Unknown building"
+        building = None
+        if osm_id is not None:
+            result = await db.execute(
+                select(building_model.Building).where(building_model.Building.osm_id == osm_id)
+            )
+            building = result.scalars().first()
+        if not building:
+            building = building_model.Building(
+                name=name,
+                address=address,
+                osm_id=osm_id,
+                lat=scan.lat,
+                lon=scan.lon
+            )
+            db.add(building)
+            await db.flush()
     if not building:
-        raise HTTPException(status_code=404, detail="Здание не найдено")
+        raise HTTPException(status_code=404, detail="Здание не найдено и не может быть определено по координатам")
+    scan.building_id = building.id
 
-    # Создаём WiFiSnapshot с координатами и ориентацией (если есть)
+    # 2. Создаём WiFiSnapshot
     snapshot = ws_model.WiFiSnapshot(
         building_id=scan.building_id,
         floor=scan.floor,
@@ -47,33 +70,32 @@ async def upload_scan(
     db.add(snapshot)
     await db.flush()
 
-    # Обрабатываем каждое WiFi-наблюдение (точку доступа)
+    # 3. Для каждого WiFi-наблюдения:
     for obs in scan.observations:
-        # Ищем точку доступа по BSSID
         result = await db.execute(
             select(ap_model.AccessPoint).where(ap_model.AccessPoint.bssid == obs.bssid)
         )
         ap_obj = result.scalars().first()
-
         if not ap_obj:
-            # Создаем новую точку доступа
+            # Если AP нет, то координаты задаём грубо (координаты снимка или 0)
             ap_obj = ap_model.AccessPoint(
                 bssid=obs.bssid,
                 ssid=obs.ssid,
                 building_id=scan.building_id,
                 floor=scan.floor,
-                x=None,
-                y=None,
-                z=None
+                x=scan.x if scan.x is not None else 0.0,
+                y=scan.y if scan.y is not None else 0.0,
+                z=scan.z if scan.z is not None else 0.0,
+                accuracy=9999.0,
+                is_mobile=False
             )
             db.add(ap_obj)
             await db.flush()
         else:
-            # Помечаем AP как мобильную, если она уже была в другом здании
+            # Если AP была в другом здании — помечаем мобильной
             if ap_obj.building_id != scan.building_id:
                 ap_obj.is_mobile = True
-
-        # Сохраняем наблюдение WiFi, привязанное к snapshot и AP
+        # Создаём наблюдение
         wifi_obs = wo_model.WiFiObs(
             snapshot_id=snapshot.id,
             access_point_id=ap_obj.id,
@@ -83,23 +105,25 @@ async def upload_scan(
             frequency=obs.frequency
         )
         db.add(wifi_obs)
+    await db.flush()
 
-    # Сохраняем все добавленные объекты в базе
+    # 4. После добавления всех наблюдений уточняем координаты AP
+    bssid_set = {obs.bssid for obs in scan.observations}
+    for bssid in bssid_set:
+        await geo_solver.recalculate_access_point_coords(bssid, db)
     try:
         await db.commit()
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Ошибка сохранения WiFi скана: {str(e)}")
 
-    # Формируем ответ с рассчитанными координатами пользователя
+    # Формируем ответ, как раньше...
     user_coords = {'building_id': snapshot.building_id, 'floor': snapshot.floor}
     if snapshot.x is not None and snapshot.y is not None:
         user_coords.update({'x': snapshot.x, 'y': snapshot.y, 'z': snapshot.z})
     elif snapshot.lat is not None and snapshot.lon is not None:
         user_coords.update({'lat': snapshot.lat, 'lon': snapshot.lon, 'altitude': snapshot.z, 'accuracy': snapshot.accuracy})
-
     computed_coords = None
-    # Попробуем вычислить координаты пользователя по сигналам Wi-Fi
     try:
         positions = []
         distances = []
@@ -122,5 +146,4 @@ async def upload_scan(
         logging.getLogger(__name__).warning(f'Не удалось вычислить координаты по Wi-Fi: {e}')
     if computed_coords:
         user_coords.update(computed_coords)
-
     return {'status': 'success', 'coordinates': user_coords}

@@ -5,28 +5,19 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 
-# Создаём асинхронный движок SQLAlchemy.
-# future=True включает поведение SQLAlchemy 2.0
+# Асинхронный движок
 async_engine = create_async_engine(
     str(settings.DATABASE_URL),
-    echo=False,        # в продакшне обычно отключаем эхо SQL
-    future=True
+    echo=False,
+    future=True,
 )
 
-# factory для получения сессий AsyncSession
 AsyncSessionLocal = sessionmaker(
     bind=async_engine,
     class_=AsyncSession,
-    expire_on_commit=False,  # не сбрасывать объекты после коммита, если нужны для дальнейшего чтения
-    
+    expire_on_commit=False,
 )
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """
-    Зависимость FastAPI для получения сессии БД.
-    Используйте в роутерах так:
-        async def some_endpoint(db: AsyncSession = Depends(get_db)):
-            ...
-    """
     async with AsyncSessionLocal() as session:
         yield session

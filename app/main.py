@@ -7,7 +7,6 @@ from app.api.deps import get_db_session
 from app.db.base import Base
 from app.db.session import async_engine
 
-# Импорт роутеров
 from app.api.routers.health import router as health_router
 from app.api.routers.upload import router as upload_router
 from app.api.routers.map import router as map_router
@@ -18,10 +17,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Настройка CORS для клиента
+# CORS (разреши свой фронт если нужно)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # или указать конкретный домен фронтенда
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,14 +29,13 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     async with async_engine.begin() as conn:
-        # Создание всех таблиц при старте
         await conn.run_sync(Base.metadata.create_all)
 
-# Подключаем роутеры с версией API
-app.include_router(health_router, prefix="/v1/health", tags=["health"])
-app.include_router(upload_router, prefix="/v1/upload", tags=["upload"])
-app.include_router(map_router, prefix="/v1/map", tags=["map"])
-app.include_router(ap_router, prefix="/v1/ap", tags=["access_points"])
+# Подключаем роутеры
+app.include_router(health_router, tags=["health"])
+app.include_router(upload_router, tags=["upload"])
+app.include_router(map_router, tags=["map"])
+app.include_router(ap_router, tags=["access_points"])
 
 @app.get("/v1/health-db", tags=["health"])
 async def health_db(db: AsyncSession = Depends(get_db_session)):

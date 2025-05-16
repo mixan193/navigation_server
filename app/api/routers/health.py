@@ -5,9 +5,11 @@ from sqlalchemy import text
 
 from app.api.deps import get_db_session
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/v1",
+)
 
-@router.get("/", summary="Health check")
+@router.get("/health", summary="Health check")
 async def health_check(db: AsyncSession = Depends(get_db_session)):
     result = await db.execute(text("SELECT 1"))
     return {"db_ok": bool(result.scalar())}

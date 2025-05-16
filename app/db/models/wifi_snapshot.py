@@ -15,12 +15,10 @@ class WiFiSnapshot(Base):
     pitch = Column(Float, nullable=True)
     roll = Column(Float, nullable=True)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
-
     user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    # GPS coordinates and accuracy
-    lat = Column(Float, nullable=True, comment="Широта (GPS)")
-    lon = Column(Float, nullable=True, comment="Долгота (GPS)")
-    accuracy = Column(Float, nullable=True, comment="Точность (м)")
+    lat = Column(Float, nullable=True)
+    lon = Column(Float, nullable=True)
+    accuracy = Column(Float, nullable=True)
 
     building = relationship("Building", back_populates="wifi_snapshots")
     observations = relationship("WiFiObs", back_populates="snapshot", cascade="all, delete-orphan")

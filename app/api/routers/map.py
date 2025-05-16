@@ -8,10 +8,12 @@ from app.db.models.floor_polygon import FloorPolygon
 from app.db.models.access_point import AccessPoint
 from app.schemas.map import MapResponse, FloorSchema
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/v1",
+)
 
 
-@router.get("/{building_id}", response_model=MapResponse)
+@router.get("/map/{building_id}", response_model=MapResponse)
 async def get_building_map(
     building_id: int,
     db: AsyncSession = Depends(get_db_session),
