@@ -1,3 +1,4 @@
+import math
 import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,8 +22,7 @@ async def upload_scan(
     scan: ScanUpload,
     db: AsyncSession = Depends(get_db)
 ):
-    # 1. Проверка/создание здания как раньше...
-
+    # 1. Проверка/создание здания (как раньше)
     result = await db.execute(
         select(building_model.Building).where(building_model.Building.id == scan.building_id)
     )
@@ -52,7 +52,14 @@ async def upload_scan(
         raise HTTPException(status_code=404, detail="Здание не найдено и не может быть определено по координатам")
     scan.building_id = building.id
 
-    # 2. Создаём WiFiSnapshot
+    # --- Новое: вычисляем локальные x, y из lat/lon если x и y не заданы ---
+    if scan.x is None or scan.y is None:
+        if scan.lat is not None and scan.lon is not None and building.lat is not None and building.lon is not None:
+            # перевод широта/долгота в локальные метры
+            scan.x = (scan.lon - building.lon) * math.cos(math.radians(building.lat)) * 111320
+            scan.y = (scan.lat - building.lat) * 110574
+
+    # 2. Создаём WiFiSnapshot (x, y уже могут быть вычислены)
     snapshot = ws_model.WiFiSnapshot(
         building_id=scan.building_id,
         floor=scan.floor,
@@ -77,7 +84,7 @@ async def upload_scan(
         )
         ap_obj = result.scalars().first()
         if not ap_obj:
-            # Если AP нет, то координаты задаём грубо (координаты снимка или 0)
+            # Если AP нет, то координаты задаём по месту сканирования (или 0)
             ap_obj = ap_model.AccessPoint(
                 bssid=obs.bssid,
                 ssid=obs.ssid,
@@ -117,7 +124,7 @@ async def upload_scan(
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Ошибка сохранения WiFi скана: {str(e)}")
 
-    # Формируем ответ, как раньше...
+    # Формируем ответ (как раньше)
     user_coords = {'building_id': snapshot.building_id, 'floor': snapshot.floor}
     if snapshot.x is not None and snapshot.y is not None:
         user_coords.update({'x': snapshot.x, 'y': snapshot.y, 'z': snapshot.z})
