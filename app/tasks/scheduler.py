@@ -36,8 +36,14 @@ def start_scheduler() -> None:
     - adjust_building_maps: каждый день в 4:00 утра
     """
     # Удаляем старые задачи, если были, перед повторной регистрацией
-    scheduler.remove_job('update_ap_positions', jobstore=None, job_defaults=None, silence_exception=True)
-    scheduler.remove_job('adjust_building_maps', jobstore=None, job_defaults=None, silence_exception=True)
+    try:
+        scheduler.remove_job('update_ap_positions')
+    except Exception:
+        pass
+    try:
+        scheduler.remove_job('adjust_building_maps')
+    except Exception:
+        pass
 
     # Добавляем задачу пересчёта координат AP (ежедневно в 03:00)
     scheduler.add_job(
