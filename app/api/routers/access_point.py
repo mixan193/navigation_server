@@ -12,24 +12,7 @@ router = APIRouter(prefix="/v1/access-points", tags=["AccessPoint"])
     "/",
     response_model=AccessPointListResponse,
     summary="Получить список точек доступа",
-    description="Возвращает список всех точек доступа. Можно фильтровать по building_id, floor, bssid, ssid, is_mobile, accuracy_min/max. Поддерживается пагинация и сортировка.",
-    examples={
-        "filter_by_bssid": {
-            "summary": "Фильтрация по BSSID",
-            "description": "Получить только одну точку доступа по BSSID.",
-            "value": {"bssid": "AA:BB:CC:DD:EE:FF"}
-        },
-        "filter_mobile": {
-            "summary": "Только мобильные точки",
-            "description": "Получить только мобильные точки доступа.",
-            "value": {"is_mobile": True}
-        },
-        "filter_accuracy": {
-            "summary": "По диапазону точности",
-            "description": "Получить точки с точностью от 0 до 10 метров.",
-            "value": {"accuracy_min": 0, "accuracy_max": 10}
-        }
-    }
+    description="Возвращает список всех точек доступа. Можно фильтровать по building_id, floor, bssid, ssid, is_mobile, accuracy_min/max. Поддерживается пагинация и сортировка."
 )
 async def list_access_points(
     building_id: int | None = None,
