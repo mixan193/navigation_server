@@ -90,9 +90,8 @@ async def update_access_point_positions(db: AsyncSession):
         logger.info(f"Анализ AP: {ap.bssid} для update_access_point_positions")
 
         stmt = (
-            select(WiFiObs, WiFiSnapshot)
+            select(WiFiObs)
             .join(WiFiSnapshot, WiFiObs.snapshot_id == WiFiSnapshot.id)
-            .options(contains_eager(WiFiObs.snapshot))
             .where(WiFiObs.access_point_id == ap.id)
             .where(
                 (WiFiSnapshot.building_id == ap.building_id) &
@@ -104,56 +103,17 @@ async def update_access_point_positions(db: AsyncSession):
             .limit(15)
         )
         result = await db.execute(stmt)
-        observations_list = [obs for obs, snap in result.all()]
-
-        # DIAGNOSTIC: Check if selectinload populated snapshots immediately
-        if observations_list:
-            logger.debug(f"AP {ap.bssid}: Checking snapshot status immediately after initial query with selectinload.")
-            for i, obs_check in enumerate(observations_list):
-                insp_check = sqlalchemy_inspect(obs_check)
-                snapshot_value = insp_check.attrs.snapshot.loaded_value
-                if snapshot_value is not sqlalchemy.orm.attributes.NO_VALUE:
-                    logger.debug(f"AP {ap.bssid}, Obs {obs_check.id} (index {i}): Snapshot IS LOADED immediately after query. Value: {snapshot_value}")
-                else:
-                    logger.warning(f"AP {ap.bssid}, Obs {obs_check.id} (index {i}): Snapshot IS NOT LOADED (NO_VALUE) immediately after query.")
-        # END DIAGNOSTIC
-
-        processed_observations_data = [] # Store tuples of ((x,y,z), distance)
+        observations_list = result.scalars().all()
+        processed_observations_data = []
         if observations_list:
             logger.debug(f"Processing {len(observations_list)} WiFiObs for AP {ap.bssid} in update_access_point_positions.")
             for obs_item in observations_list:
                 try:
-                    # logger.debug(f"Obs {obs_item.id} (AP {ap.bssid}): Checking snapshot state before refresh.") # Temporarily removed refresh logic
-                    # insp = sqlalchemy_inspect(obs_item)
-                    # snapshot_loaded_value_before_refresh = insp.attrs.snapshot.loaded_value
-                    # if snapshot_loaded_value_before_refresh is not sqlalchemy.orm.attributes.NO_VALUE:
-                    #     logger.debug(f"Obs {obs_item.id}: Snapshot ALREADY LOADED before refresh. Value: {snapshot_loaded_value_before_refresh}")
-                    # else:
-                    #     logger.debug(f"Obs {obs_item.id}: Snapshot NOT loaded before refresh (NO_VALUE).")
-
-                    # logger.debug(f"Obs {obs_item.id}: Attempting await db.refresh(obs_item, attribute_names=['snapshot'])") # Temporarily removed refresh
-                    # await db.refresh(obs_item, attribute_names=['snapshot'])
-                    
-                    # insp_after_refresh = sqlalchemy_inspect(obs_item) # Re-inspect
-                    # snapshot_loaded_value_after_refresh = insp_after_refresh.attrs.snapshot.loaded_value
-                    # if snapshot_loaded_value_after_refresh is not sqlalchemy.orm.attributes.NO_VALUE:
-                    #     logger.debug(f"Obs {obs_item.id}: Snapshot loaded after refresh. Value: {snapshot_loaded_value_after_refresh}")
-                    # else:
-                    #     logger.error(f"Obs {obs_item.id}: Snapshot STILL NOT loaded after refresh (NO_VALUE). This is problematic.")
-
-                    logger.debug(f"Obs {obs_item.id} (AP {ap.bssid}): Accessing obs_item.snapshot") # Changed logging to include AP BSSID
-                    snap = obs_item.snapshot # Access snapshot immediately
-
+                    logger.debug(f"Obs {obs_item.id} (AP {ap.bssid}): Accessing obs_item.snapshot")
+                    snap = obs_item.snapshot
                     if snap is None:
                         logger.warning(f"WiFiObs {obs_item.id} has None snapshot after access for AP {ap.bssid}.")
                         continue
-                    
-                    # Optional: Detailed logging of snapshot state if needed
-                    # insp_obs = sqlalchemy_inspect(obs_item)
-                    # if insp_obs.persistent:
-                    #     loaded_value = insp_obs.attrs.snapshot.loaded_value
-                    #     logger.debug(f"Obs {obs_item.id}, Snapshot attr loaded: {type(loaded_value)}, Is instance: {isinstance(loaded_value, WiFiSnapshot)}")
-
                     if snap.x is not None and snap.y is not None and snap.z is not None:
                         distance = rssi_to_distance(obs_item.rssi)
                         processed_observations_data.append(
@@ -161,16 +121,6 @@ async def update_access_point_positions(db: AsyncSession):
                         )
                     else:
                         logger.debug(f"Snapshot ID {snap.id} for Obs {obs_item.id} (AP {ap.bssid}) lacks full coordinates.")
-                
-                except sqlalchemy.exc.MissingGreenlet as mg_exc:
-                    logger.error(f"MissingGreenlet for WiFiObs {obs_item.id} (AP {ap.bssid}) in update_access_point_positions: {mg_exc}")
-                    insp = sqlalchemy_inspect(obs_item)
-                    if insp.persistent:
-                         logger.error(f"Object state (snapshot loaded_value): {insp.attrs.snapshot.loaded_value}")
-                    else:
-                         logger.error("Object not persistent or no inspect info for snapshot in update_access_point_positions.")
-                    logger.error(f"Session: {db}")
-                    raise 
                 except Exception as e:
                     logger.error(f"Unexpected error for WiFiObs {obs_item.id} (AP {ap.bssid}) in update_access_point_positions: {e}")
                     raise
@@ -210,9 +160,8 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
 
     logger.info(f"Начинаем пересчёт координат для AP: {ap.bssid}") # Added logging
     stmt = (
-        select(WiFiObs, WiFiSnapshot)
+        select(WiFiObs)
         .join(WiFiSnapshot, WiFiObs.snapshot_id == WiFiSnapshot.id)
-        .options(contains_eager(WiFiObs.snapshot)) # Changed to contains_eager
         .where(WiFiObs.access_point_id == ap.id)
         .where(
             (WiFiSnapshot.building_id == ap.building_id) &
@@ -222,56 +171,17 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
         .limit(15)
     )
     result = await db.execute(stmt)
-    observations_list = [obs for obs, snap in result.all()]
-
-    # DIAGNOSTIC: Check if selectinload populated snapshots immediately
-    if observations_list:
-        logger.debug(f"AP {bssid}: Checking snapshot status immediately after initial query with selectinload.")
-        for i, obs_check in enumerate(observations_list):
-            insp_check = sqlalchemy_inspect(obs_check)
-            snapshot_value = insp_check.attrs.snapshot.loaded_value
-            if snapshot_value is not sqlalchemy.orm.attributes.NO_VALUE:
-                logger.debug(f"AP {bssid}, Obs {obs_check.id} (index {i}): Snapshot IS LOADED immediately after query. Value: {snapshot_value}")
-            else:
-                logger.warning(f"AP {bssid}, Obs {obs_check.id} (index {i}): Snapshot IS NOT LOADED (NO_VALUE) immediately after query.")
-    # END DIAGNOSTIC
-
-    processed_observations_data = [] # Store tuples of ((x,y,z), distance)
+    observations_list = result.scalars().all()
+    processed_observations_data = []
     if observations_list:
         logger.debug(f"Processing {len(observations_list)} WiFiObs objects for AP {bssid} in recalculate_access_point_coords.")
         for obs_item in observations_list:
             try:
-                # logger.debug(f"Obs {obs_item.id} (AP {bssid}): Checking snapshot state before refresh.") # Temporarily removed refresh logic
-                # insp = sqlalchemy_inspect(obs_item)
-                # snapshot_loaded_value_before_refresh = insp.attrs.snapshot.loaded_value
-                # if snapshot_loaded_value_before_refresh is not sqlalchemy.orm.attributes.NO_VALUE:
-                #     logger.debug(f"Obs {obs_item.id}: Snapshot ALREADY LOADED before refresh. Value: {snapshot_loaded_value_before_refresh}")
-                # else:
-                #     logger.debug(f"Obs {obs_item.id}: Snapshot NOT loaded before refresh (NO_VALUE).")
-
-                # logger.debug(f"Obs {obs_item.id}: Attempting await db.refresh(obs_item, attribute_names=['snapshot'])") # Temporarily removed refresh
-                # await db.refresh(obs_item, attribute_names=['snapshot'])
-                
-                # insp_after_refresh = sqlalchemy_inspect(obs_item) # Re-inspect
-                # snapshot_loaded_value_after_refresh = insp_after_refresh.attrs.snapshot.loaded_value
-                # if snapshot_loaded_value_after_refresh is not sqlalchemy.orm.attributes.NO_VALUE:
-                #     logger.debug(f"Obs {obs_item.id}: Snapshot loaded after refresh. Value: {snapshot_loaded_value_after_refresh}")
-                # else:
-                #     logger.error(f"Obs {obs_item.id}: Snapshot STILL NOT loaded after refresh (NO_VALUE). This is problematic.")
-
-                logger.debug(f"Obs {obs_item.id} (AP {bssid}): Accessing obs_item.snapshot") # Changed logging to include AP BSSID
-                snap = obs_item.snapshot # Access snapshot immediately
-
+                logger.debug(f"Obs {obs_item.id} (AP {bssid}): Accessing obs_item.snapshot")
+                snap = obs_item.snapshot
                 if snap is None:
                      logger.warning(f"WiFiObs {obs_item.id} has None snapshot after access for AP {bssid}.")
                      continue
-                
-                # Optional: Detailed logging of snapshot state if needed
-                # insp_obs = sqlalchemy_inspect(obs_item)
-                # if insp_obs.persistent:
-                #    loaded_value = insp_obs.attrs.snapshot.loaded_value
-                #    logger.debug(f"Obs {obs_item.id}, Snapshot attr loaded: {type(loaded_value)}, Is instance: {isinstance(loaded_value, WiFiSnapshot)}")
-
                 if snap.x is not None and snap.y is not None and snap.z is not None:
                     distance = rssi_to_distance(obs_item.rssi)
                     processed_observations_data.append(
@@ -279,16 +189,6 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
                     )
                 else:
                     logger.debug(f"Snapshot ID {snap.id} for Obs {obs_item.id} (AP {bssid}) lacks full coordinates (x,y,z).")
-
-            except sqlalchemy.exc.MissingGreenlet as mg_exc:
-                logger.error(f"MissingGreenlet for WiFiObs {obs_item.id} (AP {bssid}) in recalculate_access_point_coords: {mg_exc}")
-                insp = sqlalchemy_inspect(obs_item)
-                if insp.persistent:
-                     logger.error(f"Object state (snapshot loaded_value): {insp.attrs.snapshot.loaded_value}")
-                else:
-                     logger.error("Object not persistent or no inspect info for snapshot in recalculate_access_point_coords.")
-                logger.error(f"Session: {db}")
-                raise
             except Exception as e:
                 logger.error(f"Unexpected error for WiFiObs {obs_item.id} (AP {bssid}) in recalculate_access_point_coords: {e}")
                 raise
