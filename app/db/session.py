@@ -8,7 +8,7 @@ from app.core.config import settings
 # Асинхронный движок
 async_engine = create_async_engine(
     str(settings.DATABASE_URL),
-    echo=True,
+    echo=False,  # Отключаем SQL-логи
     future=True,
 )
 
