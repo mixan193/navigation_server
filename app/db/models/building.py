@@ -17,3 +17,4 @@ class Building(Base):
     floor_polygons = relationship("FloorPolygon", back_populates="building", cascade="all, delete-orphan")
     access_points = relationship("AccessPoint", back_populates="building", cascade="all, delete-orphan")
     wifi_snapshots = relationship("WiFiSnapshot", back_populates="building", cascade="all, delete-orphan")
+    pois = relationship("POI", back_populates="building", cascade="all, delete-orphan")

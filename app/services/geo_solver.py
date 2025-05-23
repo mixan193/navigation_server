@@ -127,24 +127,43 @@ async def update_access_point_positions(db: AsyncSession):
         
         positions = [data[0] for data in processed_observations_data]
         distances = [data[1] for data in processed_observations_data]
-
-        if len(positions) < 4:
-            logger.info(f"Недостаточно данных для 3D триангуляции AP {ap.bssid} (нужно >= 4, есть {len(positions)})")
-            continue
-
-        try:
-            x_new, y_new, z_new = trilaterate_3d(positions, distances)
-            logger.info(f"Обновляем координаты AP {ap.bssid}: ({x_new:.2f}, {y_new:.2f}, {z_new:.2f})")
-            await db.execute(
-                update(AccessPoint)
-                .where(AccessPoint.id == ap.id)
-                .values(x=x_new, y=y_new, z=z_new)
-            )
-        except Exception as e:
-            logger.warning(f"Не удалось триангулировать AP {ap.bssid}: {e}")
-
+        filtered = filter_observations(positions, distances)
+        if len(filtered) >= 4:
+            f_positions, f_distances = zip(*filtered)
+            try:
+                new_coords = weighted_least_squares_3d(f_positions, f_distances)
+                # Сглаживание с предыдущими координатами
+                old_coords = (ap.x, ap.y, ap.z)
+                x_new, y_new, z_new = smooth_coordinates(old_coords, new_coords, alpha=0.5)
+                logger.info(f"Обновляем координаты AP {ap.bssid} (3D): ({x_new:.2f}, {y_new:.2f}, {z_new:.2f})")
+                await db.execute(
+                    update(AccessPoint)
+                    .where(AccessPoint.id == ap.id)
+                    .values(x=x_new, y=y_new, z=z_new)
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось уточнить координаты AP {ap.bssid} (3D): {e}")
+        else:
+            # Fallback: 2D позиционирование
+            filtered_2d = [((x, y), d) for (x, y, z), d in filtered if x is not None and y is not None]
+            if len(filtered_2d) >= 3:
+                f2d_positions, f2d_distances = zip(*filtered_2d)
+                try:
+                    x_new, y_new = weighted_least_squares_2d(f2d_positions, f2d_distances)
+                    old_coords = (ap.x, ap.y)
+                    x_new, y_new = smooth_coordinates(old_coords, (x_new, y_new), alpha=0.5)
+                    logger.info(f"Обновляем координаты AP {ap.bssid} (2D): ({x_new:.2f}, {y_new:.2f})")
+                    await db.execute(
+                        update(AccessPoint)
+                        .where(AccessPoint.id == ap.id)
+                        .values(x=x_new, y=y_new)
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось уточнить координаты AP {ap.bssid} (2D): {e}")
+            else:
+                logger.info(f"Недостаточно валидных данных для 2D/3D оптимизации AP {ap.bssid} (есть {len(filtered)})")
     await db.commit()
-    logger.info("Обновление координат завершено (3D)")
+    logger.info("Обновление координат завершено (3D/2D, WLS)")
 
 async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
     """
@@ -195,24 +214,39 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
     
     positions = [data[0] for data in processed_observations_data]
     distances = [data[1] for data in processed_observations_data]
-
-    if len(positions) < 4:
-        logger.info(f"Недостаточно данных для 3D триангуляции AP {bssid} (нужно >= 4, есть {len(positions)})")
-        return
-
-    try:
-        x_new, y_new, z_new = trilaterate_3d(positions, distances)
-        logger.info(f"Обновляем координаты AP {bssid}: ({x_new:.2f}, {y_new:.2f}, {z_new:.2f})")
-        await db.execute(
-            update(AccessPoint)
-            .where(AccessPoint.id == ap.id)
-            .values(x=x_new, y=y_new, z=z_new)
-        )
-    except Exception as e:
-        logger.warning(f"Ошибка при пересчёте координат AP {bssid}: {e}")
-        # Можно рассмотреть необходимость db.rollback() здесь в определенных сценариях,
-        # но основной откат обрабатывается в вызывающей функции upload_scan.
-        # Если здесь произойдет исключение, оно поднимется выше и приведет к откату в upload_scan.
+    filtered = filter_observations(positions, distances)
+    if len(filtered) >= 4:
+        f_positions, f_distances = zip(*filtered)
+        try:
+            new_coords = weighted_least_squares_3d(f_positions, f_distances)
+            old_coords = (ap.x, ap.y, ap.z)
+            x_new, y_new, z_new = smooth_coordinates(old_coords, new_coords, alpha=0.5)
+            logger.info(f"Обновляем координаты AP {bssid} (3D): ({x_new:.2f}, {y_new:.2f}, {z_new:.2f})")
+            await db.execute(
+                update(AccessPoint)
+                .where(AccessPoint.id == ap.id)
+                .values(x=x_new, y=y_new, z=z_new)
+            )
+        except Exception as e:
+            logger.warning(f"Ошибка при уточнении координат AP {bssid} (3D): {e}")
+    else:
+        filtered_2d = [((x, y), d) for (x, y, z), d in filtered if x is not None and y is not None]
+        if len(filtered_2d) >= 3:
+            f2d_positions, f2d_distances = zip(*filtered_2d)
+            try:
+                x_new, y_new = weighted_least_squares_2d(f2d_positions, f2d_distances)
+                old_coords = (ap.x, ap.y)
+                x_new, y_new = smooth_coordinates(old_coords, (x_new, y_new), alpha=0.5)
+                logger.info(f"Обновляем координаты AP {bssid} (2D): ({x_new:.2f}, {y_new:.2f})")
+                await db.execute(
+                    update(AccessPoint)
+                    .where(AccessPoint.id == ap.id)
+                    .values(x=x_new, y=y_new)
+                )
+            except Exception as e:
+                logger.warning(f"Ошибка при уточнении координат AP {bssid} (2D): {e}")
+        else:
+            logger.info(f"Недостаточно валидных данных для 2D/3D оптимизации AP {bssid} (есть {len(filtered)})")
 
 import httpx
 
@@ -236,3 +270,67 @@ async def reverse_geocode_osm(lat: float, lon: float) -> dict:
         resp = await client.get(url, params=params, headers=headers, timeout=10)
         resp.raise_for_status()
         return resp.json()
+
+import numpy as np
+from scipy.optimize import least_squares
+
+def filter_observations(positions, distances, max_distance=50.0, min_rssi=-95):
+    """
+    Фильтрует аномальные наблюдения: слишком большие расстояния, неадекватные координаты.
+    """
+    filtered = [ (pos, dist) for pos, dist in zip(positions, distances)
+                if 0 < dist < max_distance and all(np.isfinite(pos)) ]
+    return filtered
+
+
+def weighted_least_squares_3d(positions, distances, weights=None):
+    """
+    Взвешенная нелинейная оптимизация для уточнения координат AP.
+    positions: [(x, y, z), ...]
+    distances: [d1, d2, ...]
+    weights: [w1, w2, ...] (опционально)
+    """
+    positions = np.array(positions)
+    distances = np.array(distances)
+    if weights is None:
+        # Чем ближе точка, тем выше вес (обратная пропорция расстоянию)
+        weights = 1.0 / np.clip(distances, 1.0, None)
+    weights = np.array(weights)
+
+    def residuals(x):
+        dists = np.linalg.norm(positions - x, axis=1)
+        return weights * (dists - distances)
+
+    # Начальная точка — геометрический центр
+    x0 = np.average(positions, axis=0, weights=weights)
+    res = least_squares(residuals, x0, loss='huber', f_scale=2.0)
+    return tuple(res.x)
+
+def weighted_least_squares_2d(positions, distances, weights=None):
+    """
+    Взвешенная нелинейная оптимизация для уточнения координат AP в 2D.
+    positions: [(x, y), ...]
+    distances: [d1, d2, ...]
+    weights: [w1, w2, ...] (опционально)
+    """
+    positions = np.array(positions)
+    distances = np.array(distances)
+    if weights is None:
+        weights = 1.0 / np.clip(distances, 1.0, None)
+    weights = np.array(weights)
+
+    def residuals(x):
+        dists = np.linalg.norm(positions - x, axis=1)
+        return weights * (dists - distances)
+
+    x0 = np.average(positions, axis=0, weights=weights)
+    res = least_squares(residuals, x0, loss='huber', f_scale=2.0)
+    return tuple(res.x)
+
+def smooth_coordinates(old_coords, new_coords, alpha=0.5):
+    """
+    Сглаживание координат (экспоненциальное скользящее среднее).
+    """
+    if old_coords is None or any(c is None for c in old_coords):
+        return new_coords
+    return tuple(alpha * n + (1 - alpha) * o for o, n in zip(old_coords, new_coords))

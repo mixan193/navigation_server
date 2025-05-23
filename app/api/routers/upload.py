@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from pydantic import ValidationError
 
 from app.db.models import access_point as ap_model
 from app.db.models import wifi_snapshot as ws_model
@@ -22,6 +23,16 @@ async def upload_scan(
     scan: ScanUpload,
     db: AsyncSession = Depends(get_db)
 ):
+    # Валидация WiFiObservation
+    for obs in scan.observations:
+        if not obs.bssid or not isinstance(obs.bssid, str) or len(obs.bssid) != 17:
+            raise HTTPException(status_code=422, detail=f"Некорректный BSSID: {obs.bssid}")
+        if not obs.ssid or not isinstance(obs.ssid, str):
+            raise HTTPException(status_code=422, detail=f"Некорректный SSID: {obs.ssid}")
+        if not (-100 <= obs.rssi <= 0):
+            raise HTTPException(status_code=422, detail=f"Некорректный RSSI: {obs.rssi}")
+        if not (2000 <= obs.frequency <= 6000):
+            raise HTTPException(status_code=422, detail=f"Некорректная частота: {obs.frequency}")
     # 1. Проверка/создание здания (как раньше)
     result = await db.execute(
         select(building_model.Building).where(building_model.Building.id == scan.building_id)
@@ -120,6 +131,9 @@ async def upload_scan(
         await geo_solver.recalculate_access_point_coords(bssid, db)
     try:
         await db.commit()
+    except ValidationError as ve:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=f"Ошибка валидации: {ve.errors()}")
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Ошибка сохранения WiFi скана: {str(e)}")
