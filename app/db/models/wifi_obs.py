@@ -13,5 +13,5 @@ class WiFiObs(Base):
     rssi = Column(Integer, nullable=False)
     frequency = Column(Integer, nullable=True)
 
-    snapshot = relationship("WiFiSnapshot", back_populates="observations")
+    snapshot = relationship("WiFiSnapshot", back_populates="observations", lazy="joined")
     access_point = relationship("AccessPoint", back_populates="wifi_obs")

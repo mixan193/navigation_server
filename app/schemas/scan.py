@@ -8,7 +8,7 @@ class WiFiObservation(BaseModel):
     ssid: Annotated[str, Field(min_length=1, example="MyWiFiNetwork")]
     bssid: Annotated[str, Field(pattern=r"^([0-9A-Fa-f]{2}:){5}([0-9A-Fa-f]{2})$", example="AA:BB:CC:DD:EE:FF")]
     rssi: Annotated[int, Field(le=0, example=-45)]
-    frequency: Annotated[int, Field(ge=2400, le=2500, example=2412)]
+    frequency: Annotated[int, Field(ge=2400, example=2412)]
 
 class ScanUpload(BaseModel):
     building_id: int = Field(..., example=1)

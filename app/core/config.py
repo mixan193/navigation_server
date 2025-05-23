@@ -35,7 +35,7 @@ class Settings(BaseSettings):
 
     # Логи
     LOG_LEVEL: str = Field(
-        "INFO",
+        "DEBUG",
         env="LOG_LEVEL",
         description="Logging level",
     )
