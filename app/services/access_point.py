@@ -54,23 +54,6 @@ async def list_access_points(
     result = await db.execute(stmt)
     items = result.scalars().all()
     # Total count
-    count_stmt = select(AccessPoint)
-    if building_id is not None:
-        count_stmt = count_stmt.where(AccessPoint.building_id == building_id)
-    if floor is not None:
-        count_stmt = count_stmt.where(AccessPoint.floor == floor)
-    if bssid is not None:
-        count_stmt = count_stmt.where(AccessPoint.bssid == bssid)
-    if ssid is not None:
-        count_stmt = count_stmt.where(AccessPoint.ssid == ssid)
-    if is_mobile is not None:
-        count_stmt = count_stmt.where(AccessPoint.is_mobile == is_mobile)
-    if accuracy_min is not None:
-        count_stmt = count_stmt.where(AccessPoint.accuracy >= accuracy_min)
-    if accuracy_max is not None:
-        count_stmt = count_stmt.where(AccessPoint.accuracy <= accuracy_max)
-    total = (await db.execute(count_stmt)).scalars().count()  # old
-    # Исправление: используем count(*) для подсчёта
     count_query = select(func.count()).select_from(AccessPoint)
     if building_id is not None:
         count_query = count_query.where(AccessPoint.building_id == building_id)
