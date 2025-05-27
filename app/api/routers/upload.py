@@ -26,6 +26,8 @@ async def upload_scan(
     import logging
     logger = logging.getLogger("upload_debug")
     logger.warning(f"RAW SCAN: x={scan.x}, y={scan.y}, lat={scan.lat}, lon={scan.lon}, building_id={scan.building_id}")
+    # --- ОТЛАДКА: печать всего scan ---
+    logger.warning(f"RAW SCAN FULL: {scan.dict()}")
     # 1. Проверка/создание здания (как раньше)
     result = await db.execute(
         select(building_model.Building).where(building_model.Building.id == scan.building_id)
