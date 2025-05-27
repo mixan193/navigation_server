@@ -202,6 +202,7 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
     result = await db.execute(stmt)
     observations_list = result.scalars().all()
     processed_observations_data = []
+    snapshot_accuracies = []
     if observations_list:
         logger.debug(f"Processing {len(observations_list)} WiFiObs objects for AP {bssid} in recalculate_access_point_coords.")
         for obs_item in observations_list:
@@ -211,10 +212,18 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
                 if snap is None:
                      logger.warning(f"WiFiObs {obs_item.id} has None snapshot after access for AP {bssid}.")
                      continue
+                # --- Новый блок: фильтрация по точности GPS ---
+                obs_accuracy = None
+                if hasattr(snap, 'accuracy') and snap.accuracy is not None:
+                    obs_accuracy = snap.accuracy
+                    snapshot_accuracies.append(obs_accuracy)
+                    if obs_accuracy > 20.0:
+                        logger.debug(f"Snapshot ID {snap.id} for Obs {obs_item.id} (AP {bssid}) skipped due to bad accuracy: {obs_accuracy}")
+                        continue
                 if snap.x is not None and snap.y is not None and snap.z is not None:
                     distance = rssi_to_distance(obs_item.rssi)
                     processed_observations_data.append(
-                        ((snap.x, snap.y, snap.z), distance)
+                        ((snap.x, snap.y, snap.z), distance, obs_accuracy)
                     )
                 else:
                     logger.debug(f"Snapshot ID {snap.id} for Obs {obs_item.id} (AP {bssid}) lacks full coordinates (x,y,z).")
@@ -222,20 +231,31 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
                 logger.error(f"Unexpected error for WiFiObs {obs_item.id} (AP {bssid}) in recalculate_access_point_coords: {e}")
                 raise
     
+    # --- Новый формат: позиции, расстояния, точности ---
     positions = [data[0] for data in processed_observations_data]
     distances = [data[1] for data in processed_observations_data]
+    accuracies = [data[2] if data[2] is not None else 10.0 for data in processed_observations_data]  # default 10m если нет данных
     filtered = filter_observations(positions, distances)
     import numpy as np
     if len(filtered) >= 4:
+        # --- Синхронизируем веса с filtered ---
+        filtered_idxs = [i for i, (pos, dist) in enumerate(zip(positions, distances)) if (pos, dist) in filtered]
         f_positions, f_distances = zip(*filtered)
+        f_accuracies = [accuracies[i] for i in filtered_idxs]
+        # --- Веса: чем меньше accuracy, тем больше вес ---
+        weights = [1.0 / max(a, 1.0) for a in f_accuracies]
         try:
-            new_coords = weighted_least_squares_3d(f_positions, f_distances)
+            new_coords = weighted_least_squares_3d(f_positions, f_distances, weights=weights)
             old_coords = (ap.x, ap.y, ap.z)
             x_new, y_new, z_new = smooth_coordinates(old_coords, new_coords, alpha=0.5)
             # --- Вычисление точности (accuracy) ---
             est_point = np.array([x_new, y_new, z_new])
             pred_dists = [np.linalg.norm(est_point - np.array(pos)) for pos in f_positions]
             accuracy = float(np.mean([abs(pd - dd) for pd, dd in zip(pred_dists, f_distances)]))
+            # Fallback: если accuracy неадекватна, используем минимальную snapshot accuracy
+            if (accuracy is None or accuracy > 1000.0) and snapshot_accuracies:
+                accuracy = float(min(snapshot_accuracies))
+                logger.info(f"Fallback: используем минимальную snapshot accuracy для AP {bssid}: {accuracy:.2f} м")
             logger.info(f"Обновляем координаты AP {bssid} (3D): ({x_new:.2f}, {y_new:.2f}, {z_new:.2f}), accuracy={accuracy:.2f} м")
             await db.execute(
                 update(AccessPoint)
@@ -248,14 +268,21 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
         filtered_2d = [((x, y), d) for (x, y, z), d in filtered if x is not None and y is not None]
         if len(filtered_2d) >= 3:
             f2d_positions, f2d_distances = zip(*filtered_2d)
+            # --- Веса для 2D ---
+            filtered2d_idxs = [i for i, ((x, y, z), d) in enumerate(filtered) if x is not None and y is not None]
+            f2d_accuracies = [accuracies[i] for i in filtered2d_idxs]
+            weights2d = [1.0 / max(a, 1.0) for a in f2d_accuracies]
             try:
-                x_new, y_new = weighted_least_squares_2d(f2d_positions, f2d_distances)
+                x_new, y_new = weighted_least_squares_2d(f2d_positions, f2d_distances, weights=weights2d)
                 old_coords = (ap.x, ap.y)
                 x_new, y_new = smooth_coordinates(old_coords, (x_new, y_new), alpha=0.5)
                 # --- Вычисление точности (accuracy) для 2D ---
                 est_point = np.array([x_new, y_new])
                 pred_dists = [np.linalg.norm(est_point - np.array(pos)) for pos in f2d_positions]
                 accuracy = float(np.mean([abs(pd - dd) for pd, dd in zip(pred_dists, f2d_distances)]))
+                if (accuracy is None or accuracy > 1000.0) and snapshot_accuracies:
+                    accuracy = float(min(snapshot_accuracies))
+                    logger.info(f"Fallback: используем минимальную snapshot accuracy для AP {bssid}: {accuracy:.2f} м")
                 logger.info(f"Обновляем координаты AP {bssid} (2D): ({x_new:.2f}, {y_new:.2f}), accuracy={accuracy:.2f} м")
                 await db.execute(
                     update(AccessPoint)
