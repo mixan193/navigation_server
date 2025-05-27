@@ -18,6 +18,7 @@ class AccessPointCreate(AccessPointBase):
     pass
 
 class AccessPointUpdate(BaseModel):
+    bssid: Optional[str] = None
     ssid: Optional[str] = None
     floor: Optional[int] = None
     x: Optional[float] = None

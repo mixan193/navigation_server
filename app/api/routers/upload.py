@@ -101,10 +101,19 @@ async def upload_scan(
         )
         ap_obj = result.scalars().first()
         # --- Гарантируем вычисление x/y для AP, если есть lat/lon и координаты здания ---
+        # Используем lat/lon из scan, snapshot, либо из последнего wifi_obs (если есть)
         ap_x, ap_y, ap_z = scan.x, scan.y, scan.z
-        # Если нет lat/lon в scan, пробуем взять из snapshot
         lat = scan.lat if scan.lat is not None else snapshot.lat
         lon = scan.lon if scan.lon is not None else snapshot.lon
+        # Если всё ещё нет lat/lon, пробуем взять из последнего wifi_obs (если есть)
+        if (lat is None or lon is None):
+            last_obs = await db.execute(
+                select(ws_model.WiFiSnapshot).order_by(ws_model.WiFiSnapshot.id.desc())
+            )
+            last_snap = last_obs.scalars().first()
+            if last_snap is not None:
+                lat = last_snap.lat
+                lon = last_snap.lon
         if (ap_x is None or ap_y is None) and lat is not None and lon is not None and building.lat is not None and building.lon is not None:
             ap_x = (lon - building.lon) * math.cos(math.radians(building.lat)) * 111320
             ap_y = (lat - building.lat) * 110574
