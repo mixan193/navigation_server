@@ -102,12 +102,17 @@ async def upload_scan(
         ap_obj = result.scalars().first()
         # --- Гарантируем вычисление x/y для AP, если есть lat/lon и координаты здания ---
         ap_x, ap_y, ap_z = scan.x, scan.y, scan.z
-        if (ap_x is None or ap_y is None) and scan.lat is not None and scan.lon is not None and building.lat is not None and building.lon is not None:
-            ap_x = (scan.lon - building.lon) * math.cos(math.radians(building.lat)) * 111320
-            ap_y = (scan.lat - building.lat) * 110574
-            logger.warning(f"AP CALC XY: building.lat={building.lat}, building.lon={building.lon}, scan.lat={scan.lat}, scan.lon={scan.lon}, x={ap_x}, y={ap_y}")
+        # Если нет lat/lon в scan, пробуем взять из snapshot
+        lat = scan.lat if scan.lat is not None else snapshot.lat
+        lon = scan.lon if scan.lon is not None else snapshot.lon
+        if (ap_x is None or ap_y is None) and lat is not None and lon is not None and building.lat is not None and building.lon is not None:
+            ap_x = (lon - building.lon) * math.cos(math.radians(building.lat)) * 111320
+            ap_y = (lat - building.lat) * 110574
+            logger.warning(f"AP CALC XY: building.lat={building.lat}, building.lon={building.lon}, lat={lat}, lon={lon}, x={ap_x}, y={ap_y}")
         if not ap_obj:
-            # Если AP нет, то координаты задаём по месту сканирования (или None)
+            if ap_x is None or ap_y is None or (ap_x == 0 and ap_y == 0):
+                logger.warning(f"SKIP AP CREATE: bssid={obs.bssid}, x={ap_x}, y={ap_y}, lat={lat}, lon={lon}, building.lat={building.lat}, building.lon={building.lon}")
+                continue
             ap_obj = ap_model.AccessPoint(
                 bssid=obs.bssid,
                 ssid=obs.ssid,
