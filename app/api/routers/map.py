@@ -70,5 +70,7 @@ async def get_building_map(
         building_id=building.id,
         building_name=building.name,
         address=building.address or "",
+        lat=building.lat,
+        lon=building.lon,
         floors=floors,
     )

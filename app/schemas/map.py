@@ -23,6 +23,8 @@ class MapResponse(BaseModel):
     building_id: int = Field(..., description="ID здания")
     building_name: str = Field(..., description="Название здания")
     address: str = Field(..., description="Адрес или описание здания")
+    lat: Optional[float] = Field(None, description="Широта центра здания")
+    lon: Optional[float] = Field(None, description="Долгота центра здания")
     floors: List[FloorSchema] = Field(..., description="Данные по каждому этажу")
 
     class Config:
