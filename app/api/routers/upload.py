@@ -37,11 +37,17 @@ async def upload_scan(
         osm = await reverse_geocode_osm(scan.lat, scan.lon)
         osm_id = osm.get("osm_id")
         address = osm.get("display_name", "Unknown address")
-        name = osm.get("name") or osm.get("address", {}).get("building") or "Unknown building"
+        name = osm.get("name") or osm.get("address", {}).get("building") or f"Unknown building {osm_id or ''}"  # <--- fix: make name unique
         building = None
         if osm_id is not None:
             result = await db.execute(
                 select(building_model.Building).where(building_model.Building.osm_id == osm_id)
+            )
+            building = result.scalars().first()
+        if not building:
+            # fix: check for existing building with same name
+            result = await db.execute(
+                select(building_model.Building).where(building_model.Building.name == name)
             )
             building = result.scalars().first()
         if not building:
