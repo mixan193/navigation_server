@@ -23,16 +23,9 @@ async def upload_scan(
     scan: ScanUpload,
     db: AsyncSession = Depends(get_db)
 ):
-    # Валидация WiFiObservation
-    for obs in scan.observations:
-        if not obs.bssid or not isinstance(obs.bssid, str) or len(obs.bssid) != 17:
-            raise HTTPException(status_code=422, detail=f"Некорректный BSSID: {obs.bssid}")
-        if not obs.ssid or not isinstance(obs.ssid, str):
-            raise HTTPException(status_code=422, detail=f"Некорректный SSID: {obs.ssid}")
-        if not (-100 <= obs.rssi <= 0):
-            raise HTTPException(status_code=422, detail=f"Некорректный RSSI: {obs.rssi}")
-        if not (2000 <= obs.frequency <= 6000):
-            raise HTTPException(status_code=422, detail=f"Некорректная частота: {obs.frequency}")
+    import logging
+    logger = logging.getLogger("upload_debug")
+    logger.warning(f"RAW SCAN: x={scan.x}, y={scan.y}, lat={scan.lat}, lon={scan.lon}, building_id={scan.building_id}")
     # 1. Проверка/создание здания (как раньше)
     result = await db.execute(
         select(building_model.Building).where(building_model.Building.id == scan.building_id)
@@ -69,6 +62,11 @@ async def upload_scan(
             # перевод широта/долгота в локальные метры
             scan.x = (scan.lon - building.lon) * math.cos(math.radians(building.lat)) * 111320
             scan.y = (scan.lat - building.lat) * 110574
+            logger.warning(f"CALC XY: building.lat={building.lat}, building.lon={building.lon}, scan.lat={scan.lat}, scan.lon={scan.lon}, x={scan.x}, y={scan.y}")
+        else:
+            logger.warning(f"NO XY: building.lat={building.lat}, building.lon={building.lon}, scan.lat={scan.lat}, scan.lon={scan.lon}")
+    else:
+        logger.warning(f"CLIENT XY: x={scan.x}, y={scan.y}")
 
     # 2. Создаём WiFiSnapshot (x, y уже могут быть вычислены)
     snapshot = ws_model.WiFiSnapshot(
