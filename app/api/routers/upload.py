@@ -136,9 +136,28 @@ async def upload_scan(
             db.add(ap_obj)
             await db.flush()
         else:
-            # Если AP была в другом здании — помечаем мобильной
+            # Если AP была в другом здании — помечаем мобильной только если здания далеко друг от друга
             if ap_obj.building_id != scan.building_id:
-                ap_obj.is_mobile = True
+                # Получаем координаты обоих зданий
+                b1 = await db.execute(select(building_model.Building).where(building_model.Building.id == ap_obj.building_id))
+                b2 = await db.execute(select(building_model.Building).where(building_model.Building.id == scan.building_id))
+                b1 = b1.scalars().first()
+                b2 = b2.scalars().first()
+                if b1 and b2 and b1.lat is not None and b1.lon is not None and b2.lat is not None and b2.lon is not None:
+                    # Вычисляем расстояние между зданиями (в метрах)
+                    from math import radians, cos, sin, sqrt, atan2
+                    R = 6371000  # радиус Земли в метрах
+                    dlat = radians(b2.lat - b1.lat)
+                    dlon = radians(b2.lon - b1.lon)
+                    a = sin(dlat/2)**2 + cos(radians(b1.lat)) * cos(radians(b2.lat)) * sin(dlon/2)**2
+                    c = 2 * atan2(sqrt(a), sqrt(1-a))
+                    distance = R * c
+                    if distance > 500:
+                        ap_obj.is_mobile = True
+                        logger.warning(f"AP {ap_obj.bssid} помечена как мобильная: здания {ap_obj.building_id} и {scan.building_id} на расстоянии {distance:.1f} м")
+                else:
+                    # Если координаты зданий неизвестны, по-прежнему помечаем мобильной
+                    ap_obj.is_mobile = True
         # Создаём наблюдение
         wifi_obs = wo_model.WiFiObs(
             snapshot_id=snapshot.id,
