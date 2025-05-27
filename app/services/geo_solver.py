@@ -145,7 +145,7 @@ async def update_access_point_positions(db: AsyncSession):
                 await db.execute(
                     update(AccessPoint)
                     .where(AccessPoint.id == ap.id)
-                    .values(x=x_new, y=y_new, z=z_new, accuracy=accuracy)
+                    .values(x=x_new, y=y_new, z=z_new, accuracy=accuracy if accuracy is not None else 9999.0)
                 )
             except Exception as e:
                 logger.warning(f"Не удалось уточнить координаты AP {ap.bssid} (3D): {e}")
@@ -166,7 +166,7 @@ async def update_access_point_positions(db: AsyncSession):
                     await db.execute(
                         update(AccessPoint)
                         .where(AccessPoint.id == ap.id)
-                        .values(x=x_new, y=y_new, accuracy=accuracy)
+                        .values(x=x_new, y=y_new, accuracy=accuracy if accuracy is not None else 9999.0)
                     )
                 except Exception as e:
                     logger.warning(f"Не удалось уточнить координаты AP {ap.bssid} (2D): {e}")
@@ -225,17 +225,22 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
     positions = [data[0] for data in processed_observations_data]
     distances = [data[1] for data in processed_observations_data]
     filtered = filter_observations(positions, distances)
+    import numpy as np
     if len(filtered) >= 4:
         f_positions, f_distances = zip(*filtered)
         try:
             new_coords = weighted_least_squares_3d(f_positions, f_distances)
             old_coords = (ap.x, ap.y, ap.z)
             x_new, y_new, z_new = smooth_coordinates(old_coords, new_coords, alpha=0.5)
-            logger.info(f"Обновляем координаты AP {bssid} (3D): ({x_new:.2f}, {y_new:.2f}, {z_new:.2f})")
+            # --- Вычисление точности (accuracy) ---
+            est_point = np.array([x_new, y_new, z_new])
+            pred_dists = [np.linalg.norm(est_point - np.array(pos)) for pos in f_positions]
+            accuracy = float(np.mean([abs(pd - dd) for pd, dd in zip(pred_dists, f_distances)]))
+            logger.info(f"Обновляем координаты AP {bssid} (3D): ({x_new:.2f}, {y_new:.2f}, {z_new:.2f}), accuracy={accuracy:.2f} м")
             await db.execute(
                 update(AccessPoint)
                 .where(AccessPoint.id == ap.id)
-                .values(x=x_new, y=y_new, z=z_new)
+                .values(x=x_new, y=y_new, z=z_new, accuracy=accuracy if accuracy is not None else 9999.0)
             )
         except Exception as e:
             logger.warning(f"Ошибка при уточнении координат AP {bssid} (3D): {e}")
@@ -247,11 +252,15 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
                 x_new, y_new = weighted_least_squares_2d(f2d_positions, f2d_distances)
                 old_coords = (ap.x, ap.y)
                 x_new, y_new = smooth_coordinates(old_coords, (x_new, y_new), alpha=0.5)
-                logger.info(f"Обновляем координаты AP {bssid} (2D): ({x_new:.2f}, {y_new:.2f})")
+                # --- Вычисление точности (accuracy) для 2D ---
+                est_point = np.array([x_new, y_new])
+                pred_dists = [np.linalg.norm(est_point - np.array(pos)) for pos in f2d_positions]
+                accuracy = float(np.mean([abs(pd - dd) for pd, dd in zip(pred_dists, f2d_distances)]))
+                logger.info(f"Обновляем координаты AP {bssid} (2D): ({x_new:.2f}, {y_new:.2f}), accuracy={accuracy:.2f} м")
                 await db.execute(
                     update(AccessPoint)
                     .where(AccessPoint.id == ap.id)
-                    .values(x=x_new, y=y_new)
+                    .values(x=x_new, y=y_new, accuracy=accuracy if accuracy is not None else 9999.0)
                 )
             except Exception as e:
                 logger.warning(f"Ошибка при уточнении координат AP {bssid} (2D): {e}")
