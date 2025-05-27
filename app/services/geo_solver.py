@@ -272,6 +272,7 @@ async def reverse_geocode_osm(lat: float, lon: float) -> dict:
         return resp.json()
 
 import numpy as np
+from numpy.linalg import lstsq
 from scipy.optimize import least_squares
 
 def filter_observations(positions, distances, max_distance=50.0, min_rssi=-95):

@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.db.models.access_point import AccessPoint
 from app.schemas.ap import AccessPointCreate, AccessPointUpdate
 from sqlalchemy.exc import NoResultFound, IntegrityError
@@ -69,7 +69,24 @@ async def list_access_points(
         count_stmt = count_stmt.where(AccessPoint.accuracy >= accuracy_min)
     if accuracy_max is not None:
         count_stmt = count_stmt.where(AccessPoint.accuracy <= accuracy_max)
-    total = (await db.execute(count_stmt)).scalars().count()
+    total = (await db.execute(count_stmt)).scalars().count()  # old
+    # Исправление: используем count(*) для подсчёта
+    count_query = select(func.count()).select_from(AccessPoint)
+    if building_id is not None:
+        count_query = count_query.where(AccessPoint.building_id == building_id)
+    if floor is not None:
+        count_query = count_query.where(AccessPoint.floor == floor)
+    if bssid is not None:
+        count_query = count_query.where(AccessPoint.bssid == bssid)
+    if ssid is not None:
+        count_query = count_query.where(AccessPoint.ssid == ssid)
+    if is_mobile is not None:
+        count_query = count_query.where(AccessPoint.is_mobile == is_mobile)
+    if accuracy_min is not None:
+        count_query = count_query.where(AccessPoint.accuracy >= accuracy_min)
+    if accuracy_max is not None:
+        count_query = count_query.where(AccessPoint.accuracy <= accuracy_max)
+    total = (await db.execute(count_query)).scalar_one()
     return items, total
 
 async def create_access_point(db: AsyncSession, data: AccessPointCreate) -> AccessPoint:
