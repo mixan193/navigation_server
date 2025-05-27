@@ -70,8 +70,10 @@ async def list_access_points(
     if accuracy_max is not None:
         count_query = count_query.where(AccessPoint.accuracy <= accuracy_max)
     total = (await db.execute(count_query)).scalar_one()
+
+    # Преобразование к Pydantic-схеме (гарантировано красиво и надёжно)
     from app.schemas.ap import AccessPointAdminOut
-    items_out = [AccessPointAdminOut.model_validate(item) for item in items]
+    items_out = [AccessPointAdminOut.model_validate(item, from_attributes=True) for item in items]
     return items_out, total
 
 async def create_access_point(db: AsyncSession, data: AccessPointCreate) -> AccessPoint:
