@@ -11,7 +11,7 @@ class AccessPointBase(BaseModel):
     x: float = Field(..., description="X-координата (м)")
     y: float = Field(..., description="Y-координата (м)")
     z: Optional[float] = Field(None, description="Z-координата (м)")
-    accuracy: Optional[float] = Field(9999.0, description="Погрешность (м)")
+    accuracy: Optional[float] = Field(None, description="Погрешность (м)")
     is_mobile: Optional[bool] = Field(False, description="Мобильная ли точка?")
 
 class AccessPointCreate(AccessPointBase):
