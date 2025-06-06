@@ -19,7 +19,7 @@ from app.core.config import settings
 config = context.config
 
 # Указываем URL подключения
-config.set_main_option('sqlalchemy.url', settings.DATABASE_URL)
+config.set_main_option('sqlalchemy.url', str(settings.DATABASE_URL))
 
 # Interpret the config file for Python logging.
 fileConfig(config.config_file_name)
