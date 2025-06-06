@@ -66,11 +66,8 @@ async def upload_scan(
             # перевод широта/долгота в локальные метры
             scan.x = (scan.lon - building.lon) * math.cos(math.radians(building.lat)) * 111320
             scan.y = (scan.lat - building.lat) * 110574
-            logger.warning(f"CALC XY: building.lat={building.lat}, building.lon={building.lon}, scan.lat={scan.lat}, scan.lon={scan.lon}, x={scan.x}, y={scan.y}")
-        else:
-            logger.warning(f"NO XY: building.lat={building.lat}, building.lon={building.lon}, scan.lat={scan.lat}, scan.lon={scan.lon}")
-    else:
-        logger.warning(f"CLIENT XY: x={scan.x}, y={scan.y}")
+    # else:
+        # logger.warning(f"CLIENT XY: x={scan.x}, y={scan.y}")
 
     # 2. Создаём WiFiSnapshot (x, y уже могут быть вычислены)
     snapshot = ws_model.WiFiSnapshot(
@@ -113,10 +110,8 @@ async def upload_scan(
         if (ap_x is None or ap_y is None) and lat is not None and lon is not None and building.lat is not None and building.lon is not None:
             ap_x = (lon - building.lon) * math.cos(math.radians(building.lat)) * 111320
             ap_y = (lat - building.lat) * 110574
-            logger.warning(f"AP CALC XY: building.lat={building.lat}, building.lon={building.lon}, lat={lat}, lon={lon}, x={ap_x}, y={ap_y}")
         if not ap_obj:
             if ap_x is None or ap_y is None or (ap_x == 0 and ap_y == 0):
-                logger.warning(f"SKIP AP CREATE: bssid={obs.bssid}, x={ap_x}, y={ap_y}, lat={lat}, lon={lon}, building.lat={building.lat}, building.lon={building.lon}")
                 continue
             ap_obj = ap_model.AccessPoint(
                 bssid=obs.bssid,
@@ -150,7 +145,6 @@ async def upload_scan(
                     distance = R * c
                     if distance > 500:
                         ap_obj.is_mobile = True
-                        logger.warning(f"AP {ap_obj.bssid} помечена как мобильная: здания {ap_obj.building_id} и {scan.building_id} на расстоянии {distance:.1f} м")
                 else:
                     # Если координаты зданий неизвестны, по-прежнему помечаем мобильной
                     ap_obj.is_mobile = True
