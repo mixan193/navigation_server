@@ -18,6 +18,7 @@ from app.api.routers.access_point import router as access_point_admin_router
 from app.api.routers.poi import router as poi_router
 from app.api.routers.route import router as route_router
 from app.api.routers.auth import router as auth_router
+from app.api.routers.building import router as building_router
 
 app = FastAPI(
     title="Navigation API",
@@ -50,6 +51,7 @@ app.include_router(access_point_admin_router, tags=["access_point_admin"])
 app.include_router(poi_router, tags=["poi"])
 app.include_router(route_router, tags=["route"])
 app.include_router(auth_router, tags=["auth"])
+app.include_router(building_router, tags=["building"])
 
 @app.get("/v1/health-db", tags=["health"])
 async def health_db(db: AsyncSession = Depends(get_db_session)):
