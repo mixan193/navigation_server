@@ -97,7 +97,7 @@ async def update_access_point_positions(db: AsyncSession):
             "new_accuracy": None,
             "accuracy_delta": None
         }
-        logger.info(f"Анализ AP: {ap.bssid} для update_access_point_positions")
+        # logger.info(f"Анализ AP: {ap.bssid} для update_access_point_positions")
 
         stmt = (
             select(WiFiObs)
@@ -155,7 +155,7 @@ async def update_access_point_positions(db: AsyncSession):
                 ap_log["new_coords"] = (x_new, y_new, z_new)
                 ap_log["new_accuracy"] = accuracy
                 ap_log["accuracy_delta"] = (ap.accuracy - accuracy) if (ap.accuracy is not None and accuracy is not None) else None
-                logger.info(f"Обновляем координаты AP {ap.bssid} (3D): ({x_new:.2f}, {y_new:.2f}, {z_new:.2f}), accuracy={accuracy:.2f} м")
+                # logger.info(f"Обновляем координаты AP {ap.bssid} (3D): ({x_new:.2f}, {y_new:.2f}, {z_new:.2f}), accuracy={accuracy:.2f} м")
             else:
                 filtered_2d = [((x, y), d) for (x, y, z), d in filtered if x is not None and y is not None]
                 if len(filtered_2d) >= 3:
@@ -176,7 +176,7 @@ async def update_access_point_positions(db: AsyncSession):
                     ap_log["new_coords"] = (x_new, y_new, ap.z)
                     ap_log["new_accuracy"] = accuracy
                     ap_log["accuracy_delta"] = (ap.accuracy - accuracy) if (ap.accuracy is not None and accuracy is not None) else None
-                    logger.info(f"Обновляем координаты AP {ap.bssid} (2D): ({x_new:.2f}, {y_new:.2f}), accuracy={accuracy:.2f} м")
+                    # logger.info(f"Обновляем координаты AP {ap.bssid} (2D): ({x_new:.2f}, {y_new:.2f}), accuracy={accuracy:.2f} м")
                 else:
                     ap_log["status"] = "не пересчитана"
                     ap_log["reason"] = f"Недостаточно валидных данных для 2D/3D оптимизации (есть {len(filtered)})"
@@ -272,7 +272,6 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
             if (accuracy is None or accuracy > 1000.0) and valid_snapshot_accuracies:
                 accuracy = float(min(valid_snapshot_accuracies))
                 logger.info(f"Fallback: используем минимальную snapshot accuracy для AP {bssid}: {accuracy:.2f} м")
-            logger.info(f"Обновляем координаты AP {bssid} (3D, robust): ({x_new:.2f}, {y_new:.2f}, {z_new:.2f}), accuracy={accuracy:.2f} м")
             await db.execute(
                 update(AccessPoint)
                 .where(AccessPoint.id == ap.id)
@@ -292,7 +291,6 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
                 if (accuracy is None or accuracy > 1000.0) and valid_snapshot_accuracies:
                     accuracy = float(min(valid_snapshot_accuracies))
                     logger.info(f"Fallback: используем минимальную snapshot accuracy для AP {bssid}: {accuracy:.2f} м")
-                logger.info(f"Обновляем координаты AP {bssid} (3D, fallback): ({x_new:.2f}, {y_new:.2f}, {z_new:.2f}), accuracy={accuracy:.2f} м")
                 await db.execute(
                     update(AccessPoint)
                     .where(AccessPoint.id == ap.id)
@@ -322,7 +320,6 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
                 if (accuracy is None or accuracy > 1000.0) and valid_snapshot_accuracies:
                     accuracy = float(min(valid_snapshot_accuracies))
                     logger.info(f"Fallback: используем минимальную snapshot accuracy для AP {bssid}: {accuracy:.2f} м")
-                logger.info(f"Обновляем координаты AP {bssid} (2D): ({x_new:.2f}, {y_new:.2f}), accuracy={accuracy:.2f} м")
                 await db.execute(
                     update(AccessPoint)
                     .where(AccessPoint.id == ap.id)
