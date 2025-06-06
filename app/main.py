@@ -7,6 +7,7 @@ from app.api.deps import get_db_session
 from app.db.base import Base
 from app.db.session import async_engine
 from app.tasks.scheduler import start_scheduler
+from app.core.logging_config import setup_logging
 
 from app.api.routers.health import router as health_router
 from app.api.routers.upload import router as upload_router
@@ -33,6 +34,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- LOGGING INIT ---
+setup_logging()
+# --- END LOGGING INIT ---
 
 @app.on_event("startup")
 async def on_startup():
