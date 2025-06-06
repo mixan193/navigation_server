@@ -49,6 +49,11 @@ class Settings(BaseSettings):
         env="LOG_FILENAME",
         description="Log file name",
     )
+    SECRET_KEY: str = Field(
+        "supersecretkey",
+        env="SECRET_KEY",
+        description="JWT secret key for token signing",
+    )
 
     # Pydantic V2: вместо Config используем model_config
     model_config = {
