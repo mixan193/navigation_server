@@ -119,18 +119,16 @@ async def update_access_point_positions(db: AsyncSession):
             logger.debug(f"Processing {len(observations_list)} WiFiObs for AP {ap.bssid} in update_access_point_positions.")
             for obs_item in observations_list:
                 try:
-                    logger.debug(f"Obs {obs_item.id} (AP {ap.bssid}): Accessing obs_item.snapshot")
-                    snap = obs_item.snapshot
-                    if snap is None:
+                    if obs_item.snapshot is None:
                         logger.warning(f"WiFiObs {obs_item.id} has None snapshot after access for AP {ap.bssid}.")
                         continue
-                    if snap.x is not None and snap.y is not None and snap.z is not None:
+                    if obs_item.snapshot.x is not None and obs_item.snapshot.y is not None and obs_item.snapshot.z is not None:
                         distance = rssi_to_distance(obs_item.rssi)
                         processed_observations_data.append(
-                            ((snap.x, snap.y, snap.z), distance)
+                            ((obs_item.snapshot.x, obs_item.snapshot.y, obs_item.snapshot.z), distance)
                         )
                     else:
-                        logger.debug(f"Snapshot ID {snap.id} for Obs {obs_item.id} (AP {ap.bssid}) lacks full coordinates.")
+                        logger.debug(f"Snapshot ID {obs_item.snapshot.id} for Obs {obs_item.id} (AP {ap.bssid}) lacks full coordinates.")
                 except Exception as e:
                     logger.error(f"Unexpected error for WiFiObs {obs_item.id} (AP {ap.bssid}) in update_access_point_positions: {e}")
                     continue
@@ -226,22 +224,17 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
         logger.debug(f"Processing {len(observations_list)} WiFiObs objects for AP {bssid} in recalculate_access_point_coords.")
         for obs_item in observations_list:
             try:
-                logger.debug(f"Obs {obs_item.id} (AP {bssid}): Accessing obs_item.snapshot")
-                snap = obs_item.snapshot
-                if snap is None:
-                     logger.warning(f"WiFiObs {obs_item.id} has None snapshot after access for AP {bssid}.")
-                     continue
                 obs_accuracy = None
-                if hasattr(snap, 'accuracy') and snap.accuracy is not None:
-                    obs_accuracy = snap.accuracy
+                if hasattr(obs_item.snapshot, 'accuracy') and obs_item.snapshot.accuracy is not None:
+                    obs_accuracy = obs_item.snapshot.accuracy
                     snapshot_accuracies.append(obs_accuracy)
-                if snap.x is not None and snap.y is not None and snap.z is not None:
+                if obs_item.snapshot.x is not None and obs_item.snapshot.y is not None and obs_item.snapshot.z is not None:
                     distance = rssi_to_distance(obs_item.rssi)
                     processed_observations_data.append(
-                        ((snap.x, snap.y, snap.z), distance, obs_accuracy)
+                        ((obs_item.snapshot.x, obs_item.snapshot.y, obs_item.snapshot.z), distance, obs_accuracy)
                     )
                 else:
-                    logger.debug(f"Snapshot ID {snap.id} for Obs {obs_item.id} (AP {bssid}) lacks full coordinates (x,y,z).")
+                    logger.debug(f"Snapshot ID {obs_item.snapshot.id} for Obs {obs_item.id} (AP {bssid}) lacks full coordinates (x,y,z).")
             except Exception as e:
                 logger.error(f"Unexpected error for WiFiObs {obs_item.id} (AP {bssid}) in recalculate_access_point_coords: {e}")
                 raise
