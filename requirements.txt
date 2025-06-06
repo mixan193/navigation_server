@@ -12,3 +12,4 @@ apscheduler>=3.11.0
 httpx>=0.28.1
 pydantic-settings
 scipy
+psycopg2-binary
