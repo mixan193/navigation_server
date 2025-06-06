@@ -75,8 +75,10 @@ def trilaterate_3d(positions, distances):
 async def update_access_point_positions(db: AsyncSession):
     """
     Пересчитывает координаты ВСЕХ стационарных точек доступа (глобальная периодическая триангуляция).
+    Формирует подробный лог по каждой AP: статус, причина, изменение точности и координат.
     """
     logger.info("Начинаем обновление координат всех AP (3D)")
+    ap_recalc_log = []
 
     result = await db.execute(
         select(AccessPoint).where(AccessPoint.is_mobile == False)
@@ -84,6 +86,17 @@ async def update_access_point_positions(db: AsyncSession):
     aps_to_update = result.scalars().all()
 
     for ap in aps_to_update:
+        ap_log = {
+            "bssid": ap.bssid,
+            "id": ap.id,
+            "old_coords": (ap.x, ap.y, ap.z),
+            "old_accuracy": ap.accuracy,
+            "status": None,
+            "reason": None,
+            "new_coords": None,
+            "new_accuracy": None,
+            "accuracy_delta": None
+        }
         logger.info(f"Анализ AP: {ap.bssid} для update_access_point_positions")
 
         stmt = (
@@ -120,57 +133,66 @@ async def update_access_point_positions(db: AsyncSession):
                         logger.debug(f"Snapshot ID {snap.id} for Obs {obs_item.id} (AP {ap.bssid}) lacks full coordinates.")
                 except Exception as e:
                     logger.error(f"Unexpected error for WiFiObs {obs_item.id} (AP {ap.bssid}) in update_access_point_positions: {e}")
-                    raise
-        
+                    continue
         positions = [data[0] for data in processed_observations_data]
         distances = [data[1] for data in processed_observations_data]
         filtered = filter_observations(positions, distances)
-        if len(filtered) >= 4:
-            f_positions, f_distances = zip(*filtered)
-            try:
+        try:
+            if len(filtered) >= 4:
+                f_positions, f_distances = zip(*filtered)
                 new_coords = weighted_least_squares_3d(f_positions, f_distances)
-                # Сглаживание с предыдущими координатами
                 old_coords = (ap.x, ap.y, ap.z)
                 x_new, y_new, z_new = smooth_coordinates(old_coords, new_coords, alpha=0.5)
-                # --- Вычисление точности (accuracy) ---
-                # Оценка: среднее абсолютное отклонение между рассчитанным положением и измеренными расстояниями
                 import numpy as np
                 est_point = np.array([x_new, y_new, z_new])
                 pred_dists = [np.linalg.norm(est_point - np.array(pos)) for pos in f_positions]
                 accuracy = float(np.mean([abs(pd - dd) for pd, dd in zip(pred_dists, f_distances)]))
-                logger.info(f"Обновляем координаты AP {ap.bssid} (3D): ({x_new:.2f}, {y_new:.2f}, {z_new:.2f}), accuracy={accuracy:.2f} м")
                 await db.execute(
                     update(AccessPoint)
                     .where(AccessPoint.id == ap.id)
                     .values(x=x_new, y=y_new, z=z_new, accuracy=accuracy if accuracy is not None else 9999.0)
                 )
-            except Exception as e:
-                logger.warning(f"Не удалось уточнить координаты AP {ap.bssid} (3D): {e}")
-        else:
-            # Fallback: 2D позиционирование
-            filtered_2d = [((x, y), d) for (x, y, z), d in filtered if x is not None and y is not None]
-            if len(filtered_2d) >= 3:
-                f2d_positions, f2d_distances = zip(*filtered_2d)
-                try:
+                ap_log["status"] = "пересчитана"
+                ap_log["reason"] = "3D multilateration"
+                ap_log["new_coords"] = (x_new, y_new, z_new)
+                ap_log["new_accuracy"] = accuracy
+                ap_log["accuracy_delta"] = (ap.accuracy - accuracy) if (ap.accuracy is not None and accuracy is not None) else None
+                logger.info(f"Обновляем координаты AP {ap.bssid} (3D): ({x_new:.2f}, {y_new:.2f}, {z_new:.2f}), accuracy={accuracy:.2f} м")
+            else:
+                filtered_2d = [((x, y), d) for (x, y, z), d in filtered if x is not None and y is not None]
+                if len(filtered_2d) >= 3:
+                    f2d_positions, f2d_distances = zip(*filtered_2d)
                     x_new, y_new = weighted_least_squares_2d(f2d_positions, f2d_distances)
                     old_coords = (ap.x, ap.y)
                     x_new, y_new = smooth_coordinates(old_coords, (x_new, y_new), alpha=0.5)
-                    # --- Вычисление точности (accuracy) для 2D ---
                     est_point = np.array([x_new, y_new])
                     pred_dists = [np.linalg.norm(est_point - np.array(pos)) for pos in f2d_positions]
                     accuracy = float(np.mean([abs(pd - dd) for pd, dd in zip(pred_dists, f2d_distances)]))
-                    logger.info(f"Обновляем координаты AP {ap.bssid} (2D): ({x_new:.2f}, {y_new:.2f}), accuracy={accuracy:.2f} м")
                     await db.execute(
                         update(AccessPoint)
                         .where(AccessPoint.id == ap.id)
                         .values(x=x_new, y=y_new, accuracy=accuracy if accuracy is not None else 9999.0)
                     )
-                except Exception as e:
-                    logger.warning(f"Не удалось уточнить координаты AP {ap.bssid} (2D): {e}")
-            else:
-                logger.info(f"Недостаточно валидных данных для 2D/3D оптимизации AP {ap.bssid} (есть {len(filtered)})")
+                    ap_log["status"] = "пересчитана"
+                    ap_log["reason"] = "2D multilateration"
+                    ap_log["new_coords"] = (x_new, y_new, ap.z)
+                    ap_log["new_accuracy"] = accuracy
+                    ap_log["accuracy_delta"] = (ap.accuracy - accuracy) if (ap.accuracy is not None and accuracy is not None) else None
+                    logger.info(f"Обновляем координаты AP {ap.bssid} (2D): ({x_new:.2f}, {y_new:.2f}), accuracy={accuracy:.2f} м")
+                else:
+                    ap_log["status"] = "не пересчитана"
+                    ap_log["reason"] = f"Недостаточно валидных данных для 2D/3D оптимизации (есть {len(filtered)})"
+                    logger.info(f"Недостаточно валидных данных для 2D/3D оптимизации AP {ap.bssid} (есть {len(filtered)})")
+        except Exception as e:
+            ap_log["status"] = "не пересчитана"
+            ap_log["reason"] = f"Ошибка оптимизации: {e}"
+            logger.warning(f"Не удалось уточнить координаты AP {ap.bssid}: {e}")
+        ap_recalc_log.append(ap_log)
     await db.commit()
     logger.info("Обновление координат завершено (3D/2D, WLS)")
+    # Подробный лог по всем AP
+    for entry in ap_recalc_log:
+        logger.info(f"AP {entry['bssid']} (id={entry['id']}): {entry['status']}. Причина: {entry['reason']}. Старые координаты: {entry['old_coords']}, новая: {entry['new_coords']}, старая точность: {entry['old_accuracy']}, новая: {entry['new_accuracy']}, delta: {entry['accuracy_delta']}")
 
 async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
     """
