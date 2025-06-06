@@ -242,24 +242,47 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
             weights.append(w_acc * w_dist)
         logger.info(f"AP {bssid}: weights={weights}")
         try:
-            new_coords = weighted_least_squares_3d(positions, distances, weights=weights)
+            # --- robust multilateration (RANSAC + NLS) ---
+            new_coords, inliers = robust_multilateration_3d(positions, distances, weights=weights, n_iter=50, min_inliers=4, threshold=5.0)
+            logger.info(f"AP {bssid}: robust multilateration inliers: {inliers}")
             old_coords = (ap.x, ap.y, ap.z)
             x_new, y_new, z_new = smooth_coordinates(old_coords, new_coords, alpha=0.5)
             est_point = np.array([x_new, y_new, z_new])
-            pred_dists = [np.linalg.norm(est_point - np.array(pos)) for pos in positions]
-            accuracy = float(np.mean([abs(pd - dd) for pd, dd in zip(pred_dists, distances)]))
-            valid_snapshot_accuracies = [a for a in snapshot_accuracies if a is not None and a < 100.0]
+            pred_dists = [np.linalg.norm(est_point - np.array(positions[i])) for i in inliers]
+            inlier_distances = [distances[i] for i in inliers]
+            accuracy = float(np.mean([abs(pd - dd) for pd, dd in zip(pred_dists, inlier_distances)]))
+            valid_snapshot_accuracies = [accuracies[i] for i in inliers if accuracies[i] is not None and accuracies[i] < 100.0]
             if (accuracy is None or accuracy > 1000.0) and valid_snapshot_accuracies:
                 accuracy = float(min(valid_snapshot_accuracies))
                 logger.info(f"Fallback: используем минимальную snapshot accuracy для AP {bssid}: {accuracy:.2f} м")
-            logger.info(f"Обновляем координаты AP {bssid} (3D): ({x_new:.2f}, {y_new:.2f}, {z_new:.2f}), accuracy={accuracy:.2f} м")
+            logger.info(f"Обновляем координаты AP {bssid} (3D, robust): ({x_new:.2f}, {y_new:.2f}, {z_new:.2f}), accuracy={accuracy:.2f} м")
             await db.execute(
                 update(AccessPoint)
                 .where(AccessPoint.id == ap.id)
                 .values(x=x_new, y=y_new, z=z_new, accuracy=accuracy if accuracy is not None else 9999.0)
             )
         except Exception as e:
-            logger.warning(f"Ошибка при уточнении координат AP {bssid} (3D): {e}")
+            logger.warning(f"Ошибка при robust уточнении координат AP {bssid} (3D): {e}")
+            # fallback на старый метод
+            try:
+                new_coords = weighted_least_squares_3d(positions, distances, weights=weights)
+                old_coords = (ap.x, ap.y, ap.z)
+                x_new, y_new, z_new = smooth_coordinates(old_coords, new_coords, alpha=0.5)
+                est_point = np.array([x_new, y_new, z_new])
+                pred_dists = [np.linalg.norm(est_point - np.array(pos)) for pos in positions]
+                accuracy = float(np.mean([abs(pd - dd) for pd, dd in zip(pred_dists, distances)]))
+                valid_snapshot_accuracies = [a for a in snapshot_accuracies if a is not None and a < 100.0]
+                if (accuracy is None or accuracy > 1000.0) and valid_snapshot_accuracies:
+                    accuracy = float(min(valid_snapshot_accuracies))
+                    logger.info(f"Fallback: используем минимальную snapshot accuracy для AP {bssid}: {accuracy:.2f} м")
+                logger.info(f"Обновляем координаты AP {bssid} (3D, fallback): ({x_new:.2f}, {y_new:.2f}, {z_new:.2f}), accuracy={accuracy:.2f} м")
+                await db.execute(
+                    update(AccessPoint)
+                    .where(AccessPoint.id == ap.id)
+                    .values(x=x_new, y=y_new, z=z_new, accuracy=accuracy if accuracy is not None else 9999.0)
+                )
+            except Exception as e2:
+                logger.warning(f"Ошибка при уточнении координат AP {bssid} (3D, fallback): {e2}")
     else:
         filtered_2d = [((x, y), d) for (x, y, z), d in zip(positions, distances) if x is not None and y is not None]
         if len(filtered_2d) >= 3:
@@ -380,3 +403,64 @@ def smooth_coordinates(old_coords, new_coords, alpha=0.5):
     if old_coords is None or any(c is None for c in old_coords):
         return new_coords
     return tuple(alpha * n + (1 - alpha) * o for o, n in zip(old_coords, new_coords))
+
+from random import sample
+
+def robust_multilateration_3d(positions, distances, weights=None, n_iter=50, min_inliers=4, threshold=5.0):
+    """
+    RANSAC + NLS для устойчивого multilateration.
+    positions: [(x, y, z), ...]
+    distances: [d1, d2, ...]
+    weights: [w1, w2, ...] (опционально)
+    threshold: максимальное отклонение (м) для inlier
+    Возвращает: best_coords, best_inliers
+    """
+    import numpy as np
+    from scipy.optimize import least_squares
+    n = len(positions)
+    if n < min_inliers:
+        raise ValueError("Недостаточно данных для robust multilateration")
+    best_inliers = []
+    best_coords = None
+    best_loss = float('inf')
+    idxs = list(range(n))
+    for _ in range(n_iter):
+        try:
+            subset = sample(idxs, min_inliers)
+            pos_sub = [positions[i] for i in subset]
+            dist_sub = [distances[i] for i in subset]
+            w_sub = [weights[i] for i in subset] if weights is not None else None
+            # NLS на подмножестве
+            def residuals(x):
+                dists = np.linalg.norm(np.array(pos_sub) - x, axis=1)
+                if w_sub is not None:
+                    return np.array(w_sub) * (dists - np.array(dist_sub))
+                return dists - np.array(dist_sub)
+            x0 = np.mean(pos_sub, axis=0)
+            res = least_squares(residuals, x0, loss='huber', f_scale=2.0)
+            candidate = res.x
+            # Проверяем inliers на всех данных
+            dists_all = np.linalg.norm(np.array(positions) - candidate, axis=1)
+            errors = np.abs(dists_all - np.array(distances))
+            inliers = [i for i, err in enumerate(errors) if err < threshold]
+            loss = np.mean(errors[inliers]) if inliers else float('inf')
+            if len(inliers) > len(best_inliers) or (len(inliers) == len(best_inliers) and loss < best_loss):
+                best_inliers = inliers
+                best_coords = candidate
+                best_loss = loss
+        except Exception as e:
+            continue
+    if not best_inliers:
+        raise ValueError("RANSAC не нашёл inliers для multilateration")
+    # Финальная оптимизация по inliers
+    pos_in = [positions[i] for i in best_inliers]
+    dist_in = [distances[i] for i in best_inliers]
+    w_in = [weights[i] for i in best_inliers] if weights is not None else None
+    def residuals(x):
+        dists = np.linalg.norm(np.array(pos_in) - x, axis=1)
+        if w_in is not None:
+            return np.array(w_in) * (dists - np.array(dist_in))
+        return dists - np.array(dist_in)
+    x0 = np.mean(pos_in, axis=0)
+    res = least_squares(residuals, x0, loss='huber', f_scale=2.0)
+    return tuple(res.x), best_inliers

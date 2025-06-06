@@ -13,6 +13,7 @@ from app.schemas.scan import ScanUpload
 from app.db.session import get_db
 from app.services import geo_solver
 from app.utils.geo_utils import reverse_geocode_osm
+from app.schemas.ap import AccessPointAdminOut
 
 router = APIRouter(
     prefix="/v1",
@@ -172,44 +173,18 @@ async def upload_scan(
 
     # 4. После добавления всех наблюдений уточняем координаты AP
     bssid_set = {obs.bssid for obs in scan.observations}
+    updated_aps = []
     for bssid in bssid_set:
         await geo_solver.recalculate_access_point_coords(bssid, db)
+        # Получаем обновлённые координаты AP
+        ap_result = await db.execute(select(ap_model.AccessPoint).where(ap_model.AccessPoint.bssid == bssid))
+        ap_obj = ap_result.scalars().first()
+        if ap_obj:
+            updated_aps.append(AccessPointAdminOut.from_orm(ap_obj))
     try:
         await db.commit()
     except ValidationError as ve:
         await db.rollback()
         raise HTTPException(status_code=422, detail=f"Ошибка валидации: {ve.errors()}")
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Ошибка сохранения WiFi скана: {str(e)}")
-
-    # Формируем ответ (как раньше)
-    user_coords = {'building_id': snapshot.building_id, 'floor': snapshot.floor}
-    if snapshot.x is not None and snapshot.y is not None:
-        user_coords.update({'x': snapshot.x, 'y': snapshot.y, 'z': snapshot.z})
-    elif snapshot.lat is not None and snapshot.lon is not None:
-        user_coords.update({'lat': snapshot.lat, 'lon': snapshot.lon, 'altitude': snapshot.z, 'accuracy': snapshot.accuracy})
-    computed_coords = None
-    try:
-        positions = []
-        distances = []
-        result_ap = await db.execute(
-            select(ap_model.AccessPoint).where(ap_model.AccessPoint.bssid.in_([obs.bssid for obs in scan.observations]))
-        )
-        ap_list = result_ap.scalars().all()
-        for ap in ap_list:
-            if ap.is_mobile or ap.x is None or ap.y is None or ap.z is None:
-                continue
-            for obs in scan.observations:
-                if obs.bssid == ap.bssid:
-                    distances.append(geo_solver.rssi_to_distance(obs.rssi))
-                    positions.append((ap.x, ap.y, ap.z))
-                    break
-        if len(positions) >= 4:
-            x_u, y_u, z_u = geo_solver.trilaterate_3d(positions, distances)
-            computed_coords = {'x': float(x_u), 'y': float(y_u), 'z': float(z_u)}
-    except Exception as e:
-        logging.getLogger(__name__).warning(f'Не удалось вычислить координаты по Wi-Fi: {e}')
-    if computed_coords:
-        user_coords.update(computed_coords)
-    return {'status': 'success', 'coordinates': user_coords}
+    # Возвращаем новые координаты AP клиенту
+    return {"updated_aps": [ap.dict() for ap in updated_aps]}
