@@ -116,7 +116,6 @@ async def update_access_point_positions(db: AsyncSession):
         observations_list = result.scalars().all()
         processed_observations_data = []
         if observations_list:
-            logger.debug(f"Processing {len(observations_list)} WiFiObs for AP {ap.bssid} in update_access_point_positions.")
             for obs_item in observations_list:
                 try:
                     if obs_item.snapshot is None:
@@ -180,7 +179,6 @@ async def update_access_point_positions(db: AsyncSession):
                 else:
                     ap_log["status"] = "не пересчитана"
                     ap_log["reason"] = f"Недостаточно валидных данных для 2D/3D оптимизации (есть {len(filtered)})"
-                    logger.info(f"Недостаточно валидных данных для 2D/3D оптимизации AP {ap.bssid} (есть {len(filtered)})")
         except Exception as e:
             ap_log["status"] = "не пересчитана"
             ap_log["reason"] = f"Ошибка оптимизации: {e}"
@@ -226,7 +224,6 @@ async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
     processed_observations_data = []
     snapshot_accuracies = []
     if observations_list:
-        logger.debug(f"Processing {len(observations_list)} WiFiObs objects for AP {bssid} in recalculate_access_point_coords.")
         for obs_item in observations_list:
             try:
                 obs_accuracy = None
