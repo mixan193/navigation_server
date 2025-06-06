@@ -19,7 +19,8 @@ from app.core.config import settings
 config = context.config
 
 # Указываем URL подключения
-config.set_main_option('sqlalchemy.url', str(settings.DATABASE_URL))
+sync_url = str(settings.DATABASE_URL).replace('+asyncpg', '+psycopg2')
+config.set_main_option('sqlalchemy.url', sync_url)
 
 # Interpret the config file for Python logging.
 fileConfig(config.config_file_name)
@@ -30,7 +31,7 @@ target_metadata = Base.metadata
 
 def run_migrations_offline():
     context.configure(
-        url=settings.DATABASE_URL,
+        url=sync_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
