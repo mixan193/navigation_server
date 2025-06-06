@@ -61,6 +61,16 @@ class UserRegisterRequest(BaseModel):
     is_superuser: bool = False
 
 
+class UserLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
 @router.post("/register")
 async def register_user(data: UserRegisterRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.username == data.username))
@@ -76,3 +86,15 @@ async def register_user(data: UserRegisterRequest, db: AsyncSession = Depends(ge
     await db.commit()
     await db.refresh(user)
     return {"id": user.id, "username": user.username, "is_superuser": user.is_superuser}
+
+
+@router.post("/login", response_model=TokenResponse)
+async def login_user(data: UserLoginRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.username == data.username))
+    user = result.scalars().first()
+    if not user or not verify_password(data.password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Неверный логин или пароль")
+    if not user.is_active:
+        raise HTTPException(status_code=400, detail="Пользователь не активен")
+    token = create_access_token({"sub": str(user.id)})
+    return TokenResponse(access_token=token)
