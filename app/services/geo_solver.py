@@ -74,15 +74,12 @@ def trilaterate_3d(positions, distances):
 
 async def update_access_point_positions(db: AsyncSession):
     """
-    Пересчитывает координаты ВСЕХ стационарных точек доступа с x/y/z == None
-    (глобальная периодическая триангуляция).
+    Пересчитывает координаты ВСЕХ стационарных точек доступа (глобальная периодическая триангуляция).
     """
     logger.info("Начинаем обновление координат всех AP (3D)")
 
     result = await db.execute(
-        select(AccessPoint).where(
-            ((AccessPoint.x.is_(None)) | (AccessPoint.y.is_(None)) | (AccessPoint.z.is_(None))) & (AccessPoint.is_mobile == False)
-        )
+        select(AccessPoint).where(AccessPoint.is_mobile == False)
     )
     aps_to_update = result.scalars().all()
 
