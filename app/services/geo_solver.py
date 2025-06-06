@@ -78,14 +78,17 @@ async def update_access_point_positions(db: AsyncSession):
     Формирует подробный лог по каждой AP: статус, причина, изменение точности и координат.
     """
     logger.info("Начинаем обновление координат всех AP (3D)")
-    ap_recalc_log = []
-
+    # Получаем все стационарные AP для массового пересчёта
     result = await db.execute(
         select(AccessPoint).where(AccessPoint.is_mobile == False)
     )
     aps_to_update = result.scalars().all()
-
-    for ap in aps_to_update:
+    total_aps = len(aps_to_update)
+    ap_recalc_log = []
+    for idx, ap in enumerate(aps_to_update, 1):
+        if total_aps > 0 and idx % max(1, total_aps // 100) == 0:
+            percent = int(idx / total_aps * 100)
+            logger.info(f"Прогресс: {percent}% ({idx}/{total_aps})")
         ap_log = {
             "bssid": ap.bssid,
             "id": ap.id,
