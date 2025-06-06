@@ -39,6 +39,7 @@ class AccessPointOut(BaseModel):
     created_at: datetime = Field(..., description="Время создания записи")
 
     class Config:
+        from_attributes = True
         orm_mode = True
 
 class AccessPointAdminOut(AccessPointOut):
@@ -47,6 +48,7 @@ class AccessPointAdminOut(AccessPointOut):
     last_update: datetime
 
     class Config:
+        from_attributes = True
         orm_mode = True
 
 class AccessPointListResponse(BaseModel):
@@ -56,4 +58,5 @@ class AccessPointListResponse(BaseModel):
     offset: int = Field(..., description="Смещение для пагинации")
 
     class Config:
+        from_attributes = True
         orm_mode = True
