@@ -5,8 +5,4 @@ __pycache__/
 # Virtual environment
 venv/
 
-# Environment files
-.env
 
-# Alembic
-migrations/versions/*.py
