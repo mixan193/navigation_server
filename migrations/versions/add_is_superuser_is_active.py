@@ -1,6 +1,13 @@
 """
 Alembic migration: add is_superuser and is_active to users
 """
+
+# revision identifiers, used by Alembic.
+revision = 'add_is_superuser_is_active'
+down_revision = '0001_initial'
+branch_labels = None
+depends_on = None
+
 from alembic import op
 import sqlalchemy as sa
 
