@@ -82,3 +82,18 @@ class POIOut(POIBase):
 
     class Config:
         orm_mode = True
+
+
+class RoutePoint(BaseModel):
+    x: float
+    y: float
+    z: float
+    floor: int
+
+
+class RouteResponse(BaseModel):
+    id: str
+    points: list[RoutePoint]
+    length: float
+    floor_from: int
+    floor_to: int
