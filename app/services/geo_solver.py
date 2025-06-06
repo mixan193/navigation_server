@@ -188,9 +188,14 @@ async def update_access_point_positions(db: AsyncSession):
         ap_recalc_log.append(ap_log)
     await db.commit()
     logger.info("Обновление координат завершено (3D/2D, WLS)")
-    # Подробный лог по всем AP
-    for entry in ap_recalc_log:
-        logger.info(f"AP {entry['bssid']} (id={entry['id']}): {entry['status']}. Причина: {entry['reason']}. Старые координаты: {entry['old_coords']}, новая: {entry['new_coords']}, старая точность: {entry['old_accuracy']}, новая: {entry['new_accuracy']}, delta: {entry['accuracy_delta']}")
+    # Итоговый summary-лог по массовому пересчёту AP
+    total = len(ap_recalc_log)
+    success = sum(1 for entry in ap_recalc_log if entry["status"] == "пересчитана")
+    failed = total - success
+    # Считаем среднее улучшение точности только для успешно пересчитанных
+    deltas = [entry["accuracy_delta"] for entry in ap_recalc_log if entry["status"] == "пересчитана" and entry["accuracy_delta"] is not None]
+    percent_improvement = (sum(deltas) / len(deltas) / max([entry["old_accuracy"] for entry in ap_recalc_log if entry["old_accuracy"]]) * 100) if deltas else 0.0
+    logger.info(f"Массовый пересчёт AP: успешно {success}/{total}, неуспешно {failed}/{total}, среднее улучшение точности: {percent_improvement:.2f}%")
 
 async def recalculate_access_point_coords(bssid: str, db: AsyncSession):
     """
