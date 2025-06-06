@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import HTTPException, status, Depends
+from fastapi import HTTPException, status, Depends, APIRouter
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from pydantic import BaseModel
 
 from app.core.config import settings
 from app.db.session import get_db
@@ -13,6 +14,8 @@ from app.db.models.user import User
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def get_password_hash(password: str) -> str:
@@ -50,3 +53,26 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
     if user is None:
         raise credentials_exception
     return user
+
+
+class UserRegisterRequest(BaseModel):
+    username: str
+    password: str
+    is_superuser: bool = False
+
+
+@router.post("/register")
+async def register_user(data: UserRegisterRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.username == data.username))
+    if result.scalars().first():
+        raise HTTPException(status_code=400, detail="Пользователь уже существует")
+    user = User(
+        username=data.username,
+        hashed_password=get_password_hash(data.password),
+        is_superuser=1 if data.is_superuser else 0,
+        is_active=1,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return {"id": user.id, "username": user.username, "is_superuser": user.is_superuser}
